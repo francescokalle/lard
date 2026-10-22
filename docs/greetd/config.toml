@@ -1,0 +1,21 @@
+# /etc/greetd/config.toml
+#
+# greetd possiede il confine di privilegio: PAM, permessi, registrazione della
+# sessione. lard greeter è un client Wayland non privilegiato e parla
+# solo il protocollo JSON di greetd.
+#
+# Un client Wayland non può ospitare sé stesso: serve un compositore ospite con
+# supporto zwlr_layer_shell_v1. Sway (wlroots) è la scelta consigliata: cage NON
+# implementa wlr-layer-shell e non è adatto a questo greeter. In alternativa usa
+# niri con docs/greeter-niri.kdl.
+
+[terminal]
+vt = 1
+
+[default_session]
+command = "sway --config /etc/lard/greeter-sway.conf"
+user = "greeter"
+
+# Alternativa con niri come compositore ospite:
+# command = "niri --config /etc/lard/greeter.kdl"
+# user = "greeter"

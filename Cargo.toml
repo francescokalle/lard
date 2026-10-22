@@ -1,0 +1,71 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+default-members = ["crates/lard"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "GPL-3.0-or-later"
+authors = ["LARD contributors"]
+repository = "https://github.com/your-org/lard"
+
+[workspace.dependencies]
+# Internal crates
+lard-core = { path = "crates/lard-core" }
+lard-render = { path = "crates/lard-render" }
+lard-services = { path = "crates/lard-services" }
+lard-shell = { path = "crates/lard-shell" }
+lard-greeter = { path = "crates/lard-greeter" }
+lard-wayland = { path = "crates/lard-wayland" }
+
+# Wayland
+wayland-client = "0.31.15"
+smithay-client-toolkit = { version = "0.21.1", features = ["system"] }
+calloop = "0.14.5"
+calloop-wayland-source = "0.4.1"
+
+# GPU / rendering
+wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "vulkan", "gles", "wgsl"] }
+raw-window-handle = "0.6.2"
+pollster = "1.0.1"
+bytemuck = { version = "1.25.2", features = ["derive"] }
+cosmic-text = "0.19.0"
+fontdb = "0.23.0"
+
+# System integration
+niri-ipc = "26.4.0"
+
+# Notifications daemon (D-Bus)
+zbus = { version = "6.0.0", default-features = false, features = ["tokio", "service", "proxy"] }
+tokio = { version = "1.54.0", features = ["rt", "sync", "time", "macros"] }
+
+# KDL (niri configuration files)
+kdl = { version = "6.5", features = ["v1"] }
+
+# Icons
+resvg = { version = "0.45", default-features = false, features = ["raster-images"] }
+
+# Data / config
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.149"
+toml = "1.1.8"
+nucleo-matcher = "0.3.1"
+futures-util = "0.3.31"
+inotify = "0.11.5"
+chrono = { version = "0.4.42", default-features = false, features = ["clock", "std"] }
+zeroize = { version = "1.9.1", features = ["derive"] }
+
+# Errors / diagnostics
+anyhow = "1.0.104"
+thiserror = "2.0.21"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

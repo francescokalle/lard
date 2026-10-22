@@ -1,0 +1,20 @@
+[package]
+name = "lard-services"
+description = "System services (niri IPC, audio, battery, network, notifications) for LARD"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+lard-core.workspace = true
+niri-ipc.workspace = true
+zbus.workspace = true
+futures-util.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+calloop.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true

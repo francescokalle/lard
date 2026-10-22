@@ -1,0 +1,166 @@
+# lard — configurazione di esempio
+#
+# Copia in:  $XDG_CONFIG_HOME/lard/config.toml
+# (di solito ~/.config/lard/config.toml)
+#
+# Le sezioni possono essere omesse. Questi sono valori consigliati (i default
+# sono nel codice). I campi sconosciuti sono errori, così un refuso non passa
+# silenziosamente.
+
+[theme]
+background      = "#17130BF0"   # barra/OSD, alpha < 1 per la blur del compositor
+surface         = "#241F17F2"
+surface_hover   = "#342B1FFF"
+surface_active  = "#463A26FF"
+text            = "#EBE1D4"
+text_muted      = "#B7AA96"
+accent          = "#EBC16C"
+accent_text     = "#241F17"
+danger          = "#FF8A80"
+warning         = "#FFD889"
+success         = "#ADFF9E"
+border          = "#FFFFFF1A"
+shadow          = "#00000073"
+border_width    = 1.0
+blur            = true       # richiede ext-background-effect-v1
+island_blur     = true       # backdrop blur anche su barra e dock
+overlay_opacity = 0.64       # opacità dei pannelli sfocati (0.30-1.0)
+frost           = 0.68       # quanto si vede il blur sulle isole (0.20-1.0)
+wallpaper       = ""         # wallpaper scelto nel carosello (viene riapplicato all avvio)
+follow_niri     = true       # segue niri: sfondo, accento e pericolo (un'unica fonte)
+shadow_blur     = 28.0
+shadow_offset_y = 10.0
+
+[theme.radius]
+sm   = 8.0        # angolo dei controlli piccoli (bottoni, pastiglie, switch)
+md   = 12.0       # angolo di card e tile: è il valore master
+lg   = 18.0       # angolo dei pannelli (launcher, control center, popover)
+pill = 999.0      # controlli completamente tondi
+linked = false    # catena: true = ogni angolo segue md
+
+[font]
+# Inter e JetBrains Mono sono incluse nel binario; è possibile usare un font
+# di sistema senza ricompilare.
+sans            = "Inter"
+mono            = "JetBrains Mono"
+icons           = "Material Icons"
+size_small      = 11.0
+size_body       = 13.0
+size_title      = 15.0
+size_large      = 30.0
+weight_regular  = 400
+weight_medium   = 500
+weight_semibold = 600
+
+[bar]
+enabled           = true
+position          = "top"      # "top" | "bottom"
+height            = 38.0
+margin            = 6.0
+padding           = 10.0
+spacing           = 6.0
+corner_radius     = 12.0     # angolo delle isole (0-32 px)
+opacity           = 0.92
+show_workspaces   = true
+show_window_title = true
+show_clock        = true
+show_battery      = true
+show_volume       = true        # slider volume nel centro di controllo
+show_network      = true
+show_bluetooth    = true
+show_system       = true
+clock_format      = "%H:%M"
+max_title_chars   = 72
+
+[dock]
+enabled      = false
+height       = 58.0
+margin       = 14.0
+padding      = 8.0
+spacing      = 6.0
+icon_size    = 23.0
+opacity      = 0.94      # opacità dell'isola del dock (0.30-1.0)
+show_running = true
+pinned       = ["zen", "chrome", "code", "kitty", "nautilus", "spotify", "obsidian"]
+
+[bar.workspace_labels]
+use_names        = true
+hide_empty       = false
+show_urgent_dot  = true
+
+[launcher]
+width            = 660.0
+max_height       = 480.0
+max_results      = 8
+corner_radius    = 20.0
+placeholder      = "Cerca applicazioni…"
+idle_timeout_secs = 25
+show_categories  = false
+
+[osd]
+enabled         = true
+# L'OSD ora vive nell'isola centrale della barra. Questi tre valori restano
+# per compatibilità con i config esistenti.
+width           = 248.0
+height          = 56.0
+margin_bottom   = 72.0
+duration_ms     = 1600
+show_label      = true
+show_percentage = true
+
+[notifications]
+enabled            = true
+width              = 360.0
+margin             = 14.0
+gap                = 10.0
+max_visible        = 4
+default_timeout_ms = 5000
+position           = "top_right"  # top_right | top_left | bottom_right | bottom_left
+
+[greeter]
+pam_service            = "lard-greeter"
+allow_empty_password   = false
+attempts_before_backoff = 3
+max_backoff_secs       = 8
+show_power_buttons     = true
+show_suspend           = true
+default_session        = "niri"
+clock_format           = "%H:%M"
+
+[greeter.wallpaper]
+top         = "#141008"
+bottom      = "#2A2113"
+accent_glow = "#8C6A2A"
+
+[animation]
+# stiffness: forza di richiamo; damping: attrito; mass: inerzia.
+# I valori sono in unità arbitrarie ma coerenti: 520/38 è "snappy".
+reduce_motion = false
+
+[animation.panel]
+stiffness     = 420.0
+damping       = 41.0
+mass          = 1.0
+rest_distance = 0.05
+rest_velocity = 0.5
+
+[animation.launcher]
+stiffness     = 420.0
+damping       = 41.0
+mass          = 1.0
+rest_distance = 0.05
+rest_velocity = 0.5
+
+[animation.osd]
+stiffness     = 420.0
+damping       = 41.0
+mass          = 1.0
+rest_distance = 0.05
+rest_velocity = 0.5
+
+[animation.notification]
+stiffness     = 420.0
+damping       = 41.0
+mass          = 1.0
+rest_distance = 0.05
+rest_velocity = 0.5

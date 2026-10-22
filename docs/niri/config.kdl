@@ -1,0 +1,22 @@
+// Snippet per ~/.config/niri/config.kdl
+// (non incollare se hai già queste bind: adattale)
+
+spawn-at-startup "lard"
+
+binds {
+    Mod+D       { spawn "lard" "ipc" "launcher"; }
+    Mod+Shift+E { spawn "lard" "ipc" "control-center"; }
+    Mod+Escape  { spawn "lard" "lock"; }
+    Mod+Shift+Q { spawn "lard" "ipc" "quit"; }
+    Mod+Shift+R { spawn "lard" "ipc" "reload"; }
+
+    XF86AudioRaiseVolume  { spawn "lard" "ipc" "volume-up"; }
+    XF86AudioLowerVolume  { spawn "lard" "ipc" "volume-down"; }
+    XF86AudioMute         { spawn "lard" "ipc" "toggle-mute"; }
+    XF86MonBrightnessUp   { spawn "lard" "ipc" "brightness-up"; }
+    XF86MonBrightnessDown { spawn "lard" "ipc" "brightness-down"; }
+}
+
+// La barra riserva spazio tramite exclusive zone; non serve una window-rule.
+// Se la tua versione di niri espone ext-background-effect-v1, la barra riceve
+// la blur del compositor; altrimenti usa il fallback vetro/alpha.
