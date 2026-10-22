@@ -151,9 +151,9 @@ impl Services {
         spawn_action(move || network::scan(&ui));
     }
 
-    pub fn connect_wifi(&self, ssid: String, password: Option<String>) {
+    pub fn connect_wifi(&self, ssid: String, identity: Option<String>, password: Option<String>) {
         let ui = self.ui.clone();
-        spawn_action(move || network::connect(&ui, ssid, password));
+        spawn_action(move || network::connect(&ui, ssid, identity, password));
     }
 
     pub fn disconnect_wifi(&self) {

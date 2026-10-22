@@ -67,6 +67,8 @@ pub enum ShellAction {
     ConnectWifi {
         ssid: String,
         password: Option<String>,
+        /// 802.1X user name (WPA-Enterprise); `None` for WPA-PSK.
+        identity: Option<String>,
     },
     DisconnectWifi,
     RefreshBluetooth,
@@ -145,6 +147,10 @@ pub struct Shell {
     pub bluetooth: BluetoothState,
     pub system: SystemStats,
     pub dnd: bool,
+    /// Last time a volume/brightness write was handed to the services. Slider
+    /// drags are throttled so the knob never lags behind the cursor.
+    last_volume_write: Instant,
+    last_brightness_write: Instant,
     /// Width of the expanded notification island, animated like the centre
     /// island of the bar.
     notification_width: Spring,
@@ -261,6 +267,8 @@ impl Shell {
             bluetooth: BluetoothState::default(),
             system: SystemStats::default(),
             dnd: false,
+            last_volume_write: Instant::now() - Duration::from_secs(1),
+            last_brightness_write: Instant::now() - Duration::from_secs(1),
             notification_width: Spring::new(0.0, notification_spring),
             notification_initialized: false,
             notification_rect: Rect::ZERO,
@@ -333,6 +341,15 @@ impl Shell {
                 self.dock.invalidate();
             }
             ServiceEvent::Volume { percent, muted } => {
+                // PipeWire echoes the level it has just applied, and those
+                // events arrive while the pointer is still dragging: taking
+                // them would yank the knob backwards (the "laggy slider").
+                // The optimistic value wins until the writes settle.
+                if Instant::now().duration_since(self.last_volume_write)
+                    < Duration::from_millis(350)
+                {
+                    return;
+                }
                 let changed = percent != self.volume || muted != self.muted;
                 self.volume = percent;
                 self.muted = muted;
@@ -346,6 +363,14 @@ impl Shell {
             ServiceEvent::Battery(state) => self.battery = state,
             ServiceEvent::Brightness(state) => {
                 self.brightness_present = state.present;
+                // Same as volume: ignore the echo of a write we just issued
+                // so a drag cannot oscillate between two values.
+                if state.present
+                    && Instant::now().duration_since(self.last_brightness_write)
+                        < Duration::from_millis(150)
+                {
+                    return;
+                }
                 if state.present {
                     let changed = self.brightness != state.percent;
                     self.brightness = state.percent;
@@ -1014,11 +1039,19 @@ impl Shell {
                 self.dirty = true;
                 Some(ShellAction::ScanBluetooth)
             }
-            Some(ShellAction::ConnectWifi { ssid, password }) => {
+            Some(ShellAction::ConnectWifi {
+                ssid,
+                password,
+                identity,
+            }) => {
                 self.wifi_error = None;
                 self.wifi_connecting = Some(ssid.clone());
                 self.dirty = true;
-                Some(ShellAction::ConnectWifi { ssid, password })
+                Some(ShellAction::ConnectWifi {
+                    ssid,
+                    password,
+                    identity,
+                })
             }
             Some(ShellAction::DisconnectWifi) => {
                 self.wifi_error = None;
@@ -1427,16 +1460,83 @@ impl Shell {
         self.dirty = true;
     }
 
-    pub fn popover_move(&mut self, pos: Point) {
-        self.popover.pointer_move(pos);
+    /// Pointer motion inside the popover. While a slider is dragged this
+    /// returns the volume/brightness action for the new position, throttled so
+    /// one `wpctl` process is not spawned for every motion event.
+    pub fn popover_move(&mut self, pos: Point) -> Option<ShellAction> {
         if self.popover.expanded_page().is_some() {
+            self.popover.pointer_move(pos);
             self.control.pointer_move(pos);
+            return None;
         }
+        let action = self.popover.pointer_move(pos)?;
+        let action = match action {
+            PopoverAction::SetVolume(percent) => ShellAction::SetVolume(percent),
+            PopoverAction::SetBrightness(percent) => ShellAction::SetBrightness(percent),
+            _ => return None,
+        };
+        let action = self.apply_control_action(Some(action))?;
+        self.throttled_level_action(action, false)
+    }
+
+    /// Button released: flush the final slider value so the last pixel of the
+    /// drag is always applied, even if the throttle dropped it.
+    pub fn popover_release(&mut self) -> Option<ShellAction> {
+        let action = self.popover.pointer_release()?;
+        let action = match action {
+            PopoverAction::SetVolume(percent) => ShellAction::SetVolume(percent),
+            PopoverAction::SetBrightness(percent) => ShellAction::SetBrightness(percent),
+            _ => return None,
+        };
+        let action = self.apply_control_action(Some(action))?;
+        self.throttled_level_action(action, true)
     }
 
     pub fn popover_leave(&mut self) {
         self.popover.pointer_leave();
         self.control.pointer_leave();
+    }
+
+    /// 40 ms between writes: the UI value is already optimistic, the service
+    /// only needs the latest value. `force` is used on button release.
+    fn throttled_level_action(&mut self, action: ShellAction, force: bool) -> Option<ShellAction> {
+        let stamp = match &action {
+            ShellAction::SetVolume(_) => &mut self.last_volume_write,
+            ShellAction::SetBrightness(_) => &mut self.last_brightness_write,
+            _ => return Some(action),
+        };
+        let now = Instant::now();
+        if !force && now.duration_since(*stamp) < Duration::from_millis(40) {
+            return None;
+        }
+        *stamp = now;
+        Some(action)
+    }
+
+    /// Optimistic volume update for the volume keys: the OSD reacts on the key
+    /// press instead of waiting for the PipeWire round-trip.
+    pub fn nudge_volume(&mut self, delta: i32) {
+        let target = (i32::from(self.volume) + delta).clamp(0, 100) as u8;
+        if target == self.volume {
+            return;
+        }
+        self.volume = target;
+        self.osd.show_volume(target, self.muted, &self.config.osd);
+        self.dirty = true;
+    }
+
+    /// Same for the brightness keys.
+    pub fn nudge_brightness(&mut self, delta: i32) {
+        if !self.brightness_present {
+            return;
+        }
+        let target = (i32::from(self.brightness) + delta).clamp(1, 100) as u8;
+        if target == self.brightness {
+            return;
+        }
+        self.brightness = target;
+        self.osd.show_brightness(target, &self.config.osd);
+        self.dirty = true;
     }
 
     pub fn popover_axis(&mut self, delta: f32) -> Option<ShellAction> {

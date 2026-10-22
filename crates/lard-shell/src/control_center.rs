@@ -36,6 +36,13 @@ pub enum EmbeddedCommand {
     Action(Option<ShellAction>),
 }
 
+/// Which field of the Wi-Fi prompt has the keyboard focus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PasswordField {
+    Identity,
+    Secret,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Hit {
     Close,
@@ -55,6 +62,8 @@ enum Hit {
     WifiNetwork(usize),
     WifiCancel,
     WifiSubmit,
+    /// Focus the 802.1X user-name field / the secret field.
+    WifiField(PasswordField),
     BtToggle(bool),
     BtScan,
     BtDevice(usize),
@@ -99,6 +108,9 @@ pub struct ControlCenter {
     cursor: Option<Point>,
     reduce_motion: bool,
     password_ssid: Option<String>,
+    password_enterprise: bool,
+    password_identity: String,
+    password_focus: PasswordField,
     password_input: String,
     network_rows: Vec<WifiNetwork>,
     device_rows: Vec<BluetoothDevice>,
@@ -127,6 +139,9 @@ impl ControlCenter {
             cursor: None,
             reduce_motion,
             password_ssid: None,
+            password_enterprise: false,
+            password_identity: String::new(),
+            password_focus: PasswordField::Secret,
             password_input: String::new(),
             network_rows: Vec::new(),
             device_rows: Vec::new(),
@@ -290,16 +305,28 @@ impl ControlCenter {
                 None
             }
             Hit::WifiSubmit => self.submit_password(),
+            Hit::WifiField(field) => {
+                self.password_focus = field;
+                None
+            }
             Hit::WifiNetwork(index) => {
                 let network = self.network_rows.get(index).cloned()?;
                 if network.secured && !network.saved {
                     self.password_ssid = Some(network.ssid);
+                    self.password_enterprise = network.enterprise;
+                    self.password_identity.clear();
                     self.password_input.clear();
+                    self.password_focus = if network.enterprise {
+                        PasswordField::Identity
+                    } else {
+                        PasswordField::Secret
+                    };
                     None
                 } else {
                     Some(ShellAction::ConnectWifi {
                         ssid: network.ssid,
                         password: None,
+                        identity: None,
                     })
                 }
             }
@@ -396,123 +423,141 @@ impl ControlCenter {
     /// keyboard-exclusive, so text typed into the password field arrives here.
     pub fn embedded_key(&mut self, page: ControlPage, key: ShellKey) -> Option<EmbeddedCommand> {
         if self.password_ssid.is_some() {
-            match key {
-                ShellKey::Escape => {
-                    self.cancel_password();
-                    Some(EmbeddedCommand::Action(None))
-                }
-                ShellKey::Backspace => {
-                    self.password_input.pop();
-                    Some(EmbeddedCommand::Action(None))
-                }
-                ShellKey::Char(text) => {
-                    if self.password_input.chars().count() < 64 {
-                        self.password_input.push_str(&text);
-                    }
-                    Some(EmbeddedCommand::Action(None))
-                }
-                ShellKey::Enter => Some(EmbeddedCommand::Action(self.submit_password())),
-                ShellKey::Up
-                | ShellKey::Down
-                | ShellKey::Left
-                | ShellKey::Right
-                | ShellKey::Home
-                | ShellKey::End
-                | ShellKey::PageUp
-                | ShellKey::PageDown
-                | ShellKey::Delete
-                | ShellKey::Tab => None,
+            return Some(EmbeddedCommand::Action(self.password_key(key)));
+        }
+        match key {
+            ShellKey::Escape | ShellKey::Left => Some(EmbeddedCommand::Back),
+            ShellKey::Up => {
+                self.scroll_page(page, -1.0);
+                Some(EmbeddedCommand::Action(None))
             }
-        } else {
-            match key {
-                ShellKey::Escape | ShellKey::Left => Some(EmbeddedCommand::Back),
-                ShellKey::Up => {
-                    self.scroll_page(page, -1.0);
-                    Some(EmbeddedCommand::Action(None))
-                }
-                ShellKey::Down => {
-                    self.scroll_page(page, 1.0);
-                    Some(EmbeddedCommand::Action(None))
-                }
-                _ => None,
+            ShellKey::Down => {
+                self.scroll_page(page, 1.0);
+                Some(EmbeddedCommand::Action(None))
             }
+            _ => None,
         }
     }
 
     pub fn key(&mut self, key: ShellKey) -> Option<ShellAction> {
         if self.password_ssid.is_some() {
-            match key {
-                ShellKey::Escape => {
-                    self.cancel_password();
-                    None
+            return self.password_key(key);
+        }
+        match key {
+            ShellKey::Escape => {
+                if self.page == ControlPage::Home {
+                    self.close();
+                } else {
+                    self.show_page(ControlPage::Home);
                 }
-                ShellKey::Backspace => {
-                    self.password_input.pop();
-                    None
-                }
-                ShellKey::Char(text) => {
-                    if self.password_input.chars().count() < 64 {
-                        self.password_input.push_str(&text);
-                    }
-                    None
-                }
-                ShellKey::Enter => self.submit_password(),
-                ShellKey::Up
-                | ShellKey::Down
-                | ShellKey::Left
-                | ShellKey::Right
-                | ShellKey::Home
-                | ShellKey::End
-                | ShellKey::PageUp
-                | ShellKey::PageDown
-                | ShellKey::Delete
-                | ShellKey::Tab => None,
+                None
             }
+            ShellKey::Up => {
+                self.axis(-1.0);
+                None
+            }
+            ShellKey::Down => {
+                self.axis(1.0);
+                None
+            }
+            ShellKey::Left => {
+                if self.page != ControlPage::Home {
+                    self.show_page(ControlPage::Home);
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    /// Buffer of the field that currently has the keyboard focus.
+    fn focused_buffer(&mut self) -> &mut String {
+        if self.password_enterprise && self.password_focus == PasswordField::Identity {
+            &mut self.password_identity
         } else {
-            match key {
-                ShellKey::Escape => {
-                    if self.page == ControlPage::Home {
-                        self.close();
-                    } else {
-                        self.show_page(ControlPage::Home);
-                    }
-                    None
-                }
-                ShellKey::Up => {
-                    self.axis(-1.0);
-                    None
-                }
-                ShellKey::Down => {
-                    self.axis(1.0);
-                    None
-                }
-                ShellKey::Left => {
-                    if self.page != ControlPage::Home {
-                        self.show_page(ControlPage::Home);
-                    }
-                    None
-                }
-                _ => None,
+            &mut self.password_input
+        }
+    }
+
+    /// Keyboard input for the Wi-Fi prompt (PSK or 802.1X).
+    fn password_key(&mut self, key: ShellKey) -> Option<ShellAction> {
+        match key {
+            ShellKey::Escape => {
+                self.cancel_password();
+                None
             }
+            ShellKey::Backspace => {
+                self.focused_buffer().pop();
+                None
+            }
+            ShellKey::Char(text) => {
+                let limit =
+                    if self.password_enterprise && self.password_focus == PasswordField::Identity {
+                        96
+                    } else {
+                        64
+                    };
+                let buffer = self.focused_buffer();
+                if buffer.chars().count() < limit {
+                    buffer.push_str(&text);
+                }
+                None
+            }
+            ShellKey::Tab => {
+                if self.password_enterprise {
+                    self.password_focus = match self.password_focus {
+                        PasswordField::Identity => PasswordField::Secret,
+                        PasswordField::Secret => PasswordField::Identity,
+                    };
+                }
+                None
+            }
+            ShellKey::Up if self.password_enterprise => {
+                self.password_focus = PasswordField::Identity;
+                None
+            }
+            ShellKey::Down if self.password_enterprise => {
+                self.password_focus = PasswordField::Secret;
+                None
+            }
+            ShellKey::Enter => self.submit_password(),
+            _ => None,
         }
     }
 
     fn submit_password(&mut self) -> Option<ShellAction> {
-        let ssid = self.password_ssid.take()?;
+        let ssid = self.password_ssid.clone()?;
+        let identity = if self.password_enterprise {
+            let identity = self.password_identity.trim().to_string();
+            if identity.is_empty() {
+                self.password_focus = PasswordField::Identity;
+                return None;
+            }
+            Some(identity)
+        } else {
+            None
+        };
         if self.password_input.is_empty() {
-            self.password_ssid = Some(ssid);
+            self.password_focus = PasswordField::Secret;
             return None;
         }
         let password = std::mem::take(&mut self.password_input);
+        self.password_ssid = None;
+        self.password_enterprise = false;
+        self.password_identity.clear();
         Some(ShellAction::ConnectWifi {
             ssid,
             password: Some(password),
+            identity,
         })
     }
 
     pub(crate) fn cancel_password(&mut self) {
         self.password_ssid = None;
+        self.password_enterprise = false;
+        self.password_identity.clear();
         self.password_input.clear();
+        self.password_focus = PasswordField::Secret;
     }
 
     pub fn build(
@@ -1564,6 +1609,85 @@ impl ControlCenter {
         );
     }
 
+    /// One text field of the Wi-Fi prompt: the 802.1X user name or the secret.
+    #[allow(clippy::too_many_arguments)]
+    fn wifi_field(
+        &mut self,
+        scene: &mut Scene,
+        field: Rect,
+        icon: &'static str,
+        value: &str,
+        placeholder: &str,
+        masked: bool,
+        focused: bool,
+        hit: Hit,
+        config: &lard_core::Config,
+        p: f32,
+    ) {
+        let theme = &config.theme;
+        let fonts = &config.font;
+        scene.bordered(
+            field,
+            theme.background.scale_alpha(0.92 * p),
+            theme.radius.control(),
+            if focused { 1.5 } else { 1.0 },
+            if focused {
+                theme.accent.scale_alpha(0.85 * p)
+            } else {
+                theme.border.scale_alpha(0.55 * p)
+            },
+        );
+        scene.text_center_y(
+            icon,
+            field.x + 10.0,
+            field.center().y,
+            TextStyle {
+                size: 14.0,
+                align: TextAlign::Center,
+                max_width: Some(20.0),
+                ..Default::default()
+            }
+            .icon(),
+            theme.text_muted.scale_alpha(0.75 * p),
+        );
+        let shown = if masked {
+            "•".repeat(value.chars().count().min(28))
+        } else {
+            truncate(value, 40)
+        };
+        let label = if value.is_empty() {
+            placeholder.to_string()
+        } else {
+            shown.clone()
+        };
+        scene.text_center_y(
+            &label,
+            field.x + 32.0,
+            field.center().y,
+            TextStyle {
+                size: fonts.size_body,
+                max_width: Some(field.w - 44.0),
+                wrap: false,
+                ..Default::default()
+            },
+            if value.is_empty() {
+                theme.text_muted.scale_alpha(0.55 * p)
+            } else {
+                theme.text.scale_alpha(p)
+            },
+        );
+        if focused {
+            let caret_x =
+                (field.x + 33.0 + approx_width(&shown, fonts.size_body)).min(field.right() - 12.0);
+            scene.rect(
+                Rect::new(caret_x, field.center().y - 9.0, 1.5, 18.0),
+                theme.accent.scale_alpha(p),
+                0.75,
+            );
+        }
+        self.hits.push((field, hit));
+    }
+
     fn build_wifi_password(
         &mut self,
         scene: &mut Scene,
@@ -1577,14 +1701,20 @@ impl ControlCenter {
         let theme = &config.theme;
         let fonts = &config.font;
         let ssid = self.password_ssid.clone().unwrap_or_default();
-        let card = Rect::new(content_x, panel.y + 84.0, content_w, 250.0);
+        let enterprise = self.password_enterprise;
+        let card_height = if enterprise { 356.0 } else { 250.0 };
+        let card = Rect::new(content_x, panel.y + 84.0, content_w, card_height);
         scene.rect(
             card,
             theme.background.scale_alpha(0.60 * p),
             theme.radius.card(),
         );
         scene.text(
-            "Password Wi-Fi",
+            if enterprise {
+                "Accesso Wi-Fi"
+            } else {
+                "Password Wi-Fi"
+            },
             Point::new(card.x + 16.0, card.y + 14.0),
             TextStyle {
                 size: fonts.size_body,
@@ -1605,66 +1735,60 @@ impl ControlCenter {
             theme.text_muted.scale_alpha(0.9 * p),
         );
 
-        let field = Rect::new(card.x + 16.0, card.y + 62.0, card.w - 32.0, 40.0);
-        scene.bordered(
-            field,
-            theme.background.scale_alpha(0.92 * p),
-            theme.radius.control(),
-            1.5,
-            theme.accent.scale_alpha(0.8 * p),
-        );
-        scene.text_center_y(
+        let field_w = card.w - 32.0;
+        let mut y = card.y + 60.0;
+        if enterprise {
+            self.wifi_field(
+                scene,
+                Rect::new(card.x + 16.0, y, field_w, 40.0),
+                icons::PERSON,
+                &self.password_identity.clone(),
+                "Nome utente",
+                false,
+                self.password_focus == PasswordField::Identity,
+                Hit::WifiField(PasswordField::Identity),
+                config,
+                p,
+            );
+            y += 46.0;
+        }
+        self.wifi_field(
+            scene,
+            Rect::new(card.x + 16.0, y, field_w, 40.0),
             icons::LOCK,
-            field.x + 10.0,
-            field.center().y,
-            TextStyle {
-                size: 14.0,
-                align: TextAlign::Center,
-                max_width: Some(20.0),
-                ..Default::default()
-            }
-            .icon(),
-            theme.text_muted.scale_alpha(0.75 * p),
+            &self.password_input.clone(),
+            "Password",
+            true,
+            self.password_focus == PasswordField::Secret,
+            Hit::WifiField(PasswordField::Secret),
+            config,
+            p,
         );
-        let visible = self.password_input.chars().count().min(28);
-        let masked = "•".repeat(visible);
-        scene.text_center_y(
-            &masked,
-            field.x + 32.0,
-            field.center().y,
-            TextStyle {
-                size: fonts.size_body,
-                max_width: Some(field.w - 44.0),
-                ..Default::default()
-            },
-            theme.text.scale_alpha(p),
-        );
-        let caret_x =
-            (field.x + 33.0 + approx_width(&masked, fonts.size_body)).min(field.right() - 12.0);
-        scene.rect(
-            Rect::new(caret_x, field.center().y - 9.0, 1.5, 18.0),
-            theme.accent.scale_alpha(p),
-            0.75,
-        );
+        y += 50.0;
 
         if let Some(error) = data.wifi_error {
             scene.text(
-                &truncate(error, 46),
-                Point::new(card.x + 16.0, card.y + 112.0),
+                &truncate(error, 56),
+                Point::new(card.x + 16.0, y),
                 TextStyle {
                     size: fonts.size_small - 0.5,
-                    max_width: Some(card.w - 32.0),
+                    max_width: Some(field_w),
                     ..Default::default()
                 },
                 theme.danger.scale_alpha(0.9 * p),
             );
+            y += 20.0;
         }
         scene.text(
-            "La rete verrà salvata nelle connessioni di sistema.",
-            Point::new(card.x + 16.0, card.y + 138.0),
+            if enterprise {
+                "Rete 802.1X (PEAP/MSCHAPv2): le credenziali vengono salvate in NetworkManager. Tab cambia campo."
+            } else {
+                "La rete verrà salvata nelle connessioni di sistema."
+            },
+            Point::new(card.x + 16.0, y + 6.0),
             TextStyle {
                 size: 9.5,
-                max_width: Some(card.w - 32.0),
+                max_width: Some(field_w),
                 ..Default::default()
             },
             theme.text_muted.scale_alpha(0.6 * p),
@@ -1701,7 +1825,8 @@ impl ControlCenter {
             32.0,
         );
         let connect_hover = self.cursor.is_some_and(|cursor| connect.contains(cursor));
-        let enabled = !self.password_input.is_empty();
+        let enabled = !self.password_input.is_empty()
+            && (!enterprise || !self.password_identity.trim().is_empty());
         scene.rect(
             connect,
             if enabled {
@@ -2539,6 +2664,7 @@ mod tests {
             ssid: "Casa".into(),
             signal: 72,
             secured: true,
+            enterprise: false,
             saved: false,
             active: false,
         }];
@@ -2571,8 +2697,75 @@ mod tests {
             action,
             Some(ShellAction::ConnectWifi {
                 ssid,
-                password: Some(password)
+                password: Some(password),
+                identity: None,
             }) if ssid == "Casa" && password == "segreta"
+        ));
+    }
+
+    #[test]
+    fn enterprise_wifi_prompts_for_identity_and_secret() {
+        let config = lard_core::Config::default();
+        let network = NetworkState::Disconnected;
+        let networks = [WifiNetwork {
+            ssid: "eduroam".into(),
+            signal: 70,
+            secured: true,
+            enterprise: true,
+            saved: false,
+            active: false,
+        }];
+        let mut view = ControlCenter::new(config.animation.panel, true);
+        view.open();
+        view.show_page(ControlPage::Wifi);
+        let control = data(&network, &networks, &[]);
+        let mut scene = Scene::new();
+        view.build(&mut scene, Size::new(1600.0, 900.0), &control, &config);
+        assert!(view.pointer_press(Point::new(1300.0, 110.0)).is_none());
+
+        let mut scene = Scene::new();
+        view.build(&mut scene, Size::new(1600.0, 900.0), &control, &config);
+        let labels = texts(&scene);
+        assert!(labels.contains(&"Accesso Wi-Fi"), "{labels:?}");
+        assert!(labels.contains(&"Nome utente"), "{labels:?}");
+        assert!(labels.contains(&"Password"), "{labels:?}");
+
+        // The user name is focused first, Tab moves to the secret.
+        view.key(ShellKey::Char("utente".into()));
+        view.key(ShellKey::Tab);
+        view.key(ShellKey::Char("segreta".into()));
+        let action = view.key(ShellKey::Enter);
+        assert!(matches!(
+            action,
+            Some(ShellAction::ConnectWifi {
+                ssid,
+                password: Some(password),
+                identity: Some(identity),
+            }) if ssid == "eduroam" && password == "segreta" && identity == "utente"
+        ));
+
+        // A PSK network keeps the single-field prompt and no identity.
+        let psk = [WifiNetwork {
+            ssid: "Casa".into(),
+            signal: 70,
+            secured: true,
+            enterprise: false,
+            saved: false,
+            active: false,
+        }];
+        let control = data(&network, &psk, &[]);
+        let mut scene = Scene::new();
+        view.build(&mut scene, Size::new(1600.0, 900.0), &control, &config);
+        assert!(view.pointer_press(Point::new(1300.0, 110.0)).is_none());
+        view.key(ShellKey::Char("segreta".into()));
+        let action = view.key(ShellKey::Enter);
+        assert!(matches!(
+            action,
+            Some(ShellAction::ConnectWifi {
+                password: Some(_),
+                identity: None,
+                ..
+            })
         ));
     }
 
@@ -2585,6 +2778,7 @@ mod tests {
                 ssid: format!("Rete {index}"),
                 signal: 60,
                 secured: true,
+                enterprise: false,
                 saved: false,
                 active: false,
             })
@@ -2623,6 +2817,7 @@ mod tests {
             ssid: "Casa".into(),
             signal: 72,
             secured: true,
+            enterprise: false,
             saved: false,
             active: false,
         }];

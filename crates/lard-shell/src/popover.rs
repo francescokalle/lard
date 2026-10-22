@@ -6,7 +6,7 @@ use crate::bar::BarIsland;
 use crate::control_center::{ControlCenter, ControlData, ControlPage};
 use crate::icons;
 use crate::toasts::NotificationEntry;
-use crate::widgets::{MorphAnchor, battery_color, morph_rect, truncate};
+use crate::widgets::{MorphAnchor, morph_rect, truncate};
 use lard_core::anim::{Spring, SpringConfig};
 use lard_core::{Color, Config, Point, Rect, Size};
 use lard_render::{Scene, Shadow, TextAlign, TextStyle};
@@ -101,6 +101,9 @@ pub struct Popover {
     brightness_track: Rect,
     volume_value: u8,
     brightness_value: u8,
+    /// Slider grabbed by the current press: motion events keep updating it
+    /// until the button is released.
+    drag: Option<CcSlider>,
 }
 
 const EXPANDED_WIDTH: f32 = 400.0;
@@ -140,6 +143,7 @@ impl Popover {
             brightness_track: Rect::ZERO,
             volume_value: 0,
             brightness_value: 0,
+            drag: None,
         }
     }
 
@@ -152,7 +156,7 @@ impl Popover {
             PopoverKind::Notifications => Size::new(268.0, 118.0),
             PopoverKind::System => Size::new(268.0, 132.0),
             PopoverKind::Power => Size::new(248.0, 244.0),
-            PopoverKind::ControlCenter => Size::new(360.0, 500.0),
+            PopoverKind::ControlCenter => Size::new(360.0, 416.0),
         }
     }
 
@@ -173,6 +177,7 @@ impl Popover {
         self.cc_power = false;
         self.volume_track = Rect::ZERO;
         self.brightness_track = Rect::ZERO;
+        self.drag = None;
         self.open = true;
         if self.reduce_motion {
             self.progress.snap_to(1.0);
@@ -183,6 +188,7 @@ impl Popover {
 
     pub fn close(&mut self) {
         self.open = false;
+        self.drag = None;
         // The origin is kept: the closing animation is the exact reverse of
         // the opening one, so the panel shrinks back into its island.
         if self.reduce_motion {
@@ -331,12 +337,45 @@ impl Popover {
         self.progress.value().clamp(0.0, 1.0)
     }
 
-    pub fn pointer_move(&mut self, pos: Point) {
+    /// Pointer motion. While a slider is grabbed this returns the new value,
+    /// so dragging the knob (not just clicking the track) works.
+    pub fn pointer_move(&mut self, pos: Point) -> Option<PopoverAction> {
         self.cursor = Some(pos);
+        let drag = self.drag?;
+        let track = match drag {
+            CcSlider::Volume => self.volume_track,
+            CcSlider::Brightness => self.brightness_track,
+        };
+        if track.w <= 0.0 {
+            return None;
+        }
+        Some(match drag {
+            CcSlider::Volume => PopoverAction::SetVolume(slider_value(track, pos.x)),
+            CcSlider::Brightness => PopoverAction::SetBrightness(slider_value(track, pos.x)),
+        })
     }
 
     pub fn pointer_leave(&mut self) {
         self.cursor = None;
+        self.drag = None;
+    }
+
+    /// Button released: the drag ends and, if a slider was grabbed, its final
+    /// value is returned so the shell can flush it past the throttle.
+    pub fn pointer_release(&mut self) -> Option<PopoverAction> {
+        let drag = self.drag.take()?;
+        let track = match drag {
+            CcSlider::Volume => self.volume_track,
+            CcSlider::Brightness => self.brightness_track,
+        };
+        if track.w <= 0.0 {
+            return None;
+        }
+        let pos = self.cursor?;
+        Some(match drag {
+            CcSlider::Volume => PopoverAction::SetVolume(slider_value(track, pos.x)),
+            CcSlider::Brightness => PopoverAction::SetBrightness(slider_value(track, pos.x)),
+        })
     }
 
     pub fn pointer_press(&mut self, pos: Point) -> Option<PopoverAction> {
@@ -344,12 +383,14 @@ impl Popover {
         // Wi-Fi/Bluetooth page, and the power submenu has no sliders.
         if self.kind == PopoverKind::ControlCenter && !self.cc_power && self.expanded.is_none() {
             if self.volume_track.contains(pos) {
+                self.drag = Some(CcSlider::Volume);
                 return Some(PopoverAction::SetVolume(slider_value(
                     self.volume_track,
                     pos.x,
                 )));
             }
             if self.brightness_track.contains(pos) {
+                self.drag = Some(CcSlider::Brightness);
                 return Some(PopoverAction::SetBrightness(slider_value(
                     self.brightness_track,
                     pos.x,
@@ -1237,13 +1278,7 @@ impl Popover {
                 config,
                 p,
             );
-            y += 56.0 + gap;
         }
-        let show_battery = bar.show_battery && data.battery.present;
-        if show_battery || bar.show_system {
-            self.build_cc_system_tile(scene, Rect::new(inner_x, y, inner_w, 76.0), data, config, p);
-        }
-
         let footer_y = panel.bottom() - pad - 34.0;
         let footer_w = (inner_w - gap) * 0.5;
         self.build_cc_footer_button(
@@ -1724,76 +1759,6 @@ impl Popover {
             }
         }
     }
-
-    fn build_cc_system_tile(
-        &mut self,
-        scene: &mut Scene,
-        rect: Rect,
-        data: &PopoverData<'_>,
-        config: &Config,
-        p: f32,
-    ) {
-        let theme = &config.theme;
-        let fonts = &config.font;
-        scene.rect(
-            rect,
-            theme.background.scale_alpha(0.55 * p),
-            theme.radius.card(),
-        );
-        scene.bordered(
-            rect,
-            Color::TRANSPARENT,
-            theme.radius.card(),
-            theme.border_width,
-            theme.border.scale_alpha(0.42 * p),
-        );
-        // The load lives on the bar, here only the battery stays.
-        let battery = data.battery;
-        if !battery.present {
-            return;
-        }
-        scene.text_center_y(
-            if battery.charging {
-                icons::BATTERY_CHARGING
-            } else {
-                icons::BATTERY_FULL
-            },
-            rect.x + 14.0,
-            rect.y + 22.0,
-            TextStyle {
-                size: 16.0,
-                max_width: Some(22.0),
-                ..Default::default()
-            }
-            .icon(),
-            battery_color(battery.percent, theme).scale_alpha(p),
-        );
-        scene.text_center_y(
-            format!("{}%", battery.percent),
-            rect.x + 38.0,
-            rect.y + 22.0,
-            TextStyle {
-                size: fonts.size_small,
-                weight: fonts.weight_semibold,
-                max_width: Some(44.0),
-                ..Default::default()
-            },
-            theme.text.scale_alpha(0.94 * p),
-        );
-        scene.text_center_y(
-            "Batteria",
-            rect.x + 92.0,
-            rect.y + 22.0,
-            TextStyle {
-                size: fonts.size_small,
-                max_width: Some(rect.right() - rect.x - 106.0),
-                ..Default::default()
-            },
-            theme.text_muted.scale_alpha(0.78 * p),
-        );
-    }
-
-    #[allow(clippy::too_many_arguments)]
     fn build_cc_footer_button(
         &mut self,
         scene: &mut Scene,
@@ -2319,6 +2284,65 @@ mod tests {
         assert!(matches!(
             popover.axis(1.0),
             Some(PopoverAction::SetVolume(45))
+        ));
+    }
+
+    #[test]
+    fn sliders_can_be_dragged_while_the_button_is_held() {
+        let mut config = Config::default();
+        config.bar.show_volume = true;
+        let network = NetworkState::Disconnected;
+        let data = data(&network);
+        let mut popover = Popover::new(config.animation.panel, true);
+        popover.open(PopoverKind::ControlCenter, 1500.0, None);
+        let mut scene = Scene::new();
+        popover.build(
+            &mut scene,
+            Size::new(1600.0, 900.0),
+            &data,
+            &config,
+            1230.0,
+            None,
+        );
+
+        // Volume: press on the track, then drag to the right edge. The knob
+        // must follow the pointer (a click-only slider was the bug).
+        let volume = popover.volume_track;
+        assert!(matches!(
+            popover.pointer_press(volume.center()),
+            Some(PopoverAction::SetVolume(50))
+        ));
+        let right = Point::new(volume.right() - 0.5, volume.center().y);
+        assert!(matches!(
+            popover.pointer_move(right),
+            Some(PopoverAction::SetVolume(100))
+        ));
+        let left = Point::new(volume.x + 1.0, volume.center().y);
+        assert!(matches!(
+            popover.pointer_move(left),
+            Some(PopoverAction::SetVolume(0))
+        ));
+        assert!(matches!(
+            popover.pointer_release(),
+            Some(PopoverAction::SetVolume(0))
+        ));
+        // After the release the knob is no longer grabbed.
+        assert!(popover.pointer_move(right).is_none());
+
+        // Brightness: same drag, on the brightness track.
+        let brightness = popover.brightness_track;
+        assert!(brightness.w > 0.0);
+        assert!(matches!(
+            popover.pointer_press(brightness.center()),
+            Some(PopoverAction::SetBrightness(50))
+        ));
+        assert!(matches!(
+            popover.pointer_move(Point::new(brightness.right() - 0.5, brightness.center().y)),
+            Some(PopoverAction::SetBrightness(100))
+        ));
+        assert!(matches!(
+            popover.pointer_release(),
+            Some(PopoverAction::SetBrightness(100))
         ));
     }
 

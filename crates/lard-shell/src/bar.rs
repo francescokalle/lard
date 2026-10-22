@@ -7,7 +7,7 @@ use crate::icons;
 use crate::osd::OsdState;
 use crate::popover::PopoverKind;
 use crate::toasts::ToastHeadline;
-use crate::widgets::{approx_width, truncate, truncate_to_width};
+use crate::widgets::{approx_width, battery_color, truncate, truncate_to_width};
 use lard_core::anim::{Spring, SpringConfig};
 use lard_core::theme::{BarConfig, FontConfig};
 use lard_core::{Color, Point, Rect, Size};
@@ -457,9 +457,21 @@ impl Bar {
         // inside the macOS-style panel.
         let cpu_text = format!("{}%", data.system.cpu_percent);
         let ram_text = format!("{}%", data.system.memory_percent);
-        let meter_w = 16.0 + approx_width(&cpu_text, fonts.size_small - 0.5) + 8.0;
+        // Reserve the width of "100%" up front: sizing the meter on the
+        // current reading made the percentage wrap onto a second line the
+        // moment CPU or RAM reached three digits.
+        let text_size = fonts.size_small - 0.5;
+        let meter_text_w = (approx_width("100%", text_size) * 1.03).ceil();
+        let meter_w = 16.0 + meter_text_w + 10.0;
+        let battery = data.battery;
+        let show_battery = bar.show_battery && battery.present;
+        let battery_w = if show_battery {
+            16.0 + meter_text_w + 10.0
+        } else {
+            0.0
+        };
         let button_w = 34.0;
-        let right_w = pad * 2.0 + meter_w * 2.0 + button_w + 6.0;
+        let right_w = pad * 2.0 + battery_w + meter_w * 2.0 + button_w + 6.0;
         let right_x = size.w - right_w;
         self.islands
             .push((BarIsland::Right, Rect::new(right_x, 0.0, right_w, size.h)));
@@ -477,8 +489,46 @@ impl Bar {
             theme.border.scale_alpha(0.7 * right_alpha),
         );
 
-        // The cpu and ram load.
+        // Battery first: it is the status that has to be readable at a glance.
         let mut meter_x = right_x + pad;
+        if show_battery {
+            scene.text_center_y(
+                if battery.charging {
+                    icons::BATTERY_CHARGING
+                } else if battery.percent <= 15 {
+                    icons::BATTERY_ALERT
+                } else {
+                    icons::BATTERY_FULL
+                },
+                meter_x,
+                size.h * 0.5,
+                TextStyle {
+                    size: fonts.size_small,
+                    align: TextAlign::Center,
+                    max_width: Some(16.0),
+                    ..Default::default()
+                }
+                .icon(),
+                battery_color(battery.percent, theme).scale_alpha(0.9 * right_alpha),
+            );
+            scene.text_center_y(
+                &format!("{}%", battery.percent),
+                meter_x + 19.0,
+                size.h * 0.5,
+                TextStyle {
+                    size: text_size,
+                    weight: fonts.weight_medium,
+                    align: TextAlign::Left,
+                    max_width: Some(meter_text_w + 2.0),
+                    wrap: false,
+                    ..Default::default()
+                },
+                theme.text.scale_alpha(0.9 * right_alpha),
+            );
+            meter_x += battery_w;
+        }
+
+        // The cpu and ram load.
         for (icon, text) in [(icons::CPU, &cpu_text), (icons::MEMORY, &ram_text)] {
             scene.text_center_y(
                 icon,
@@ -498,10 +548,11 @@ impl Bar {
                 meter_x + 19.0,
                 size.h * 0.5,
                 TextStyle {
-                    size: fonts.size_small - 0.5,
+                    size: text_size,
                     weight: fonts.weight_medium,
                     align: TextAlign::Left,
-                    max_width: Some(28.0),
+                    max_width: Some(meter_text_w + 2.0),
+                    wrap: false,
                     ..Default::default()
                 },
                 theme.text.scale_alpha(0.9 * right_alpha),
@@ -795,6 +846,71 @@ mod tests {
     use lard_services::network::NetworkState;
     use lard_services::niri::NiriSnapshot;
     use lard_services::system::SystemStats;
+
+    #[test]
+    fn battery_lives_in_the_right_island_and_three_digits_fit() {
+        let mut config = Config::default();
+        config.bar.show_battery = true;
+        let niri = NiriSnapshot::default();
+        let network = NetworkState::default();
+        let data = BarData {
+            niri: &niri,
+            volume: 40,
+            muted: false,
+            osd: None,
+            battery: BatteryState {
+                present: true,
+                percent: 87,
+                charging: false,
+                external_power: false,
+            },
+            network: &network,
+            bluetooth: BluetoothState::default(),
+            wifi_enabled: true,
+            system: SystemStats {
+                cpu_percent: 100,
+                memory_percent: 100,
+                ..SystemStats::default()
+            },
+            clock: "12:00",
+            date: "mar 20 ott",
+            dnd: false,
+            active_toasts: 0,
+            toast: None,
+            notification_count: 0,
+            morph: None,
+        };
+        let mut bar = Bar::new("eDP-1");
+        let mut scene = Scene::new();
+        bar.build(
+            &mut scene,
+            Size::new(1600.0, config.bar.height),
+            &data,
+            &config,
+        );
+        let texts: Vec<&str> = scene.texts.iter().map(|text| scene.text_of(text)).collect();
+        assert!(texts.contains(&"87%"), "battery on the bar: {texts:?}");
+        assert_eq!(texts.iter().filter(|text| **text == "100%").count(), 2);
+        // The percentage is shaped on a single line inside a budget that fits
+        // three digits: at 100% it used to wrap and push the "%" down a row.
+        let cmd = scene
+            .texts
+            .iter()
+            .find(|text| scene.text_of(text) == "100%")
+            .expect("cpu percentage");
+        assert!(!cmd.style.wrap, "bar meters must never wrap");
+        assert!(
+            cmd.style.max_width.unwrap_or(0.0) >= approx_width("100%", cmd.style.size),
+            "meter box is too narrow for 100%"
+        );
+        let right = bar
+            .islands
+            .iter()
+            .find(|(island, _)| *island == BarIsland::Right)
+            .map(|(_, rect)| *rect)
+            .expect("right island");
+        assert!(right.w > 120.0, "battery + cpu + ram + button: {right:?}");
+    }
 
     #[test]
     fn notification_bell_lives_in_the_centre_island() {

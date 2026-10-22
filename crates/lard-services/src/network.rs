@@ -55,6 +55,14 @@ impl NetworkState {
 }
 
 pub fn spawn(ui: Sender<ServiceEvent>) {
+    // Automatic scan: the access point list must not be frozen at the moment
+    // the panel was opened. The scanner only publishes a new list when it
+    // actually changed, so the bar/panel is not repainted for nothing.
+    let scan_ui = ui.clone();
+    std::thread::Builder::new()
+        .name("wifi-scan".into())
+        .spawn(move || auto_scan(scan_ui))
+        .expect("failed to spawn wifi scan thread");
     std::thread::Builder::new()
         .name("network".into())
         .spawn(move || {
@@ -129,6 +137,47 @@ fn map_state(state: u32, ssid: Option<String>) -> NetworkState {
         20 | 30 => NetworkState::Disconnected,
         _ => NetworkState::Unavailable,
     }
+}
+
+/// How often the background scanner refreshes the access point list.
+const AUTO_SCAN_INTERVAL: Duration = Duration::from_secs(20);
+
+/// Keep the visible networks fresh without the user pressing "Scansiona".
+///
+/// `nmcli device wifi rescan` is rate-limited by NetworkManager/drivers, so a
+/// 20 s cadence is safe. The list is only published when it differs from the
+/// previous one: a quiet network does not cause repaints.
+fn auto_scan(ui: Sender<ServiceEvent>) {
+    let mut last: Vec<WifiNetwork> = Vec::new();
+    // Let the compositor finish starting before the first scan.
+    std::thread::sleep(Duration::from_secs(4));
+    loop {
+        if wifi_radio_enabled() {
+            let _ = Command::new("nmcli")
+                .args(["device", "wifi", "rescan"])
+                .env("LC_ALL", "C")
+                .output();
+            std::thread::sleep(Duration::from_millis(1200));
+            match read_networks() {
+                Ok(networks) => {
+                    if networks != last {
+                        last = networks.clone();
+                        if ui.send(ServiceEvent::WifiNetworks(networks)).is_err() {
+                            return;
+                        }
+                    }
+                }
+                Err(error) => tracing::debug!(%error, "wifi auto scan failed"),
+            }
+        } else {
+            last.clear();
+        }
+        std::thread::sleep(AUTO_SCAN_INTERVAL);
+    }
+}
+
+fn wifi_radio_enabled() -> bool {
+    nmcli(&["-t", "-f", "WIFI", "general"]).is_some_and(|state| state == "enabled")
 }
 
 fn poll_loop(ui: Sender<ServiceEvent>) {
@@ -216,6 +265,9 @@ pub struct WifiNetwork {
     pub signal: u8,
     /// WPA/WPA2/WPA3/WEP/enterprise: a password (or more) is required.
     pub secured: bool,
+    /// 802.1X (WPA-Enterprise): the login needs a user name and a password,
+    /// not a pre-shared key.
+    pub enterprise: bool,
     /// A NetworkManager profile with this SSID already exists.
     pub saved: bool,
     pub active: bool,
@@ -247,22 +299,20 @@ pub fn refresh(ui: &Sender<ServiceEvent>) {
 }
 
 /// Connect through nmcli. Existing profiles need no password; new secured
-/// networks receive the password entered in the control center. The password
-/// is never logged.
-pub fn connect(ui: &Sender<ServiceEvent>, ssid: String, password: Option<String>) {
-    let mut command = Command::new("nmcli");
-    command
-        .args(["--wait", "25", "device", "wifi", "connect"])
-        .arg(&ssid)
-        .env("LC_ALL", "C");
-    if let Some(password) = password.as_deref().filter(|value| !value.is_empty()) {
-        command.args(["password", password]);
-    }
-
-    let (ok, message) = match command.output() {
-        Ok(out) if out.status.success() => (true, None),
-        Ok(out) => (false, Some(command_error(&out))),
-        Err(error) => (false, Some(format!("nmcli: {error}"))),
+/// networks receive the password entered in the control center. Enterprise
+/// (802.1X) networks also need the user name (`identity`). The password is
+/// never logged.
+pub fn connect(
+    ui: &Sender<ServiceEvent>,
+    ssid: String,
+    identity: Option<String>,
+    password: Option<String>,
+) {
+    let identity = identity.filter(|value| !value.trim().is_empty());
+    let password = password.filter(|value| !value.is_empty());
+    let (ok, message) = match (identity.as_deref(), password.as_deref()) {
+        (Some(identity), Some(secret)) => enterprise_connect(&ssid, identity.trim(), secret),
+        _ => psk_connect(&ssid, password.as_deref()),
     };
     let _ = ui.send(ServiceEvent::WifiConnectResult {
         ssid: ssid.clone(),
@@ -271,6 +321,106 @@ pub fn connect(ui: &Sender<ServiceEvent>, ssid: String, password: Option<String>
     });
     std::thread::sleep(Duration::from_millis(500));
     refresh(ui);
+}
+
+/// WPA-PSK: let NetworkManager create/adopt the profile.
+fn psk_connect(ssid: &str, password: Option<&str>) -> (bool, Option<String>) {
+    let mut command = Command::new("nmcli");
+    command
+        .args(["--wait", "25", "device", "wifi", "connect"])
+        .arg(ssid)
+        .env("LC_ALL", "C");
+    if let Some(password) = password.filter(|value| !value.is_empty()) {
+        command.args(["password", password]);
+    }
+    match command.output() {
+        Ok(out) if out.status.success() => (true, None),
+        Ok(out) => (false, Some(command_error(&out))),
+        Err(error) => (false, Some(format!("nmcli: {error}"))),
+    }
+}
+
+/// 802.1X (WPA-Enterprise): `nmcli device wifi connect` only knows the PSK
+/// flow, so the profile is created (or updated) explicitly with `wpa-eap`.
+///
+/// PEAP + MSCHAPv2 covers eduroam and most university/corporate networks;
+/// some deployments only accept TTLS/PAP, so a failed attempt is retried with
+/// that inner method before the error reaches the UI.
+fn enterprise_connect(ssid: &str, identity: &str, password: &str) -> (bool, Option<String>) {
+    match enterprise_attempt(ssid, identity, password, "peap", "mschapv2") {
+        Ok(()) => (true, None),
+        Err(peap_error) => match enterprise_attempt(ssid, identity, password, "ttls", "pap") {
+            Ok(()) => (true, None),
+            Err(ttls_error) => (
+                false,
+                Some(if ttls_error.is_empty() {
+                    peap_error
+                } else {
+                    ttls_error
+                }),
+            ),
+        },
+    }
+}
+
+fn enterprise_attempt(
+    ssid: &str,
+    identity: &str,
+    password: &str,
+    eap: &str,
+    phase2: &str,
+) -> Result<(), String> {
+    let existing = nmcli_output(&["-t", "-f", "NAME", "connection", "show"])
+        .map(|raw| raw.lines().any(|line| line.trim() == ssid))
+        .unwrap_or(false);
+
+    let mut command = Command::new("nmcli");
+    if existing {
+        command.args(["connection", "modify", "id", ssid]);
+    } else {
+        command.args([
+            "connection",
+            "add",
+            "type",
+            "wifi",
+            "con-name",
+            ssid,
+            "ssid",
+            ssid,
+        ]);
+    }
+    command
+        .args([
+            "wifi-sec.key-mgmt",
+            "wpa-eap",
+            "802-1x.eap",
+            eap,
+            "802-1x.phase2-auth",
+            phase2,
+            "802-1x.identity",
+            identity,
+            "802-1x.password",
+            password,
+            "connection.autoconnect",
+            "yes",
+        ])
+        .env("LC_ALL", "C");
+    let out = command
+        .output()
+        .map_err(|error| format!("nmcli: {error}"))?;
+    if !out.status.success() {
+        return Err(command_error(&out));
+    }
+
+    let up = Command::new("nmcli")
+        .args(["--wait", "20", "connection", "up", "id", ssid])
+        .env("LC_ALL", "C")
+        .output()
+        .map_err(|error| format!("nmcli: {error}"))?;
+    if !up.status.success() {
+        return Err(command_error(&up));
+    }
+    Ok(())
 }
 
 pub fn disconnect(ui: &Sender<ServiceEvent>) {
@@ -320,17 +470,22 @@ fn parse_wifi_list(raw: &str, saved: &HashSet<String>) -> Vec<WifiNetwork> {
         let signal = fields[2].trim().parse::<u8>().unwrap_or(0).min(100);
         let security = fields[3].trim();
         let secured = !security.is_empty() && security != "--";
+        // nmcli reports enterprise networks as "WPA2 802.1X" (or "WPA-EAP").
+        let enterprise = security.to_ascii_uppercase().contains("802.1X")
+            || security.to_ascii_uppercase().contains("EAP");
         let active = fields[0].trim() == "*";
 
         if let Some(network) = networks.iter_mut().find(|network| network.ssid == ssid) {
             network.signal = network.signal.max(signal);
             network.secured |= secured;
+            network.enterprise |= enterprise;
             network.active |= active;
         } else {
             networks.push(WifiNetwork {
                 ssid: ssid.to_string(),
                 signal,
                 secured,
+                enterprise,
                 saved: saved.contains(ssid),
                 active,
             });
@@ -470,8 +625,28 @@ mod tests {
         assert!(networks[0].active);
         assert!(networks[0].saved);
         assert!(networks[0].secured);
+        assert!(!networks[0].enterprise);
         assert_eq!(networks[1].ssid, "Caffè");
         assert!(!networks[2].secured);
+    }
+
+    #[test]
+    fn enterprise_networks_are_flagged() {
+        let networks = parse_wifi_list(":eduroam:72:WPA2 802.1X\n:Casa:50:WPA2\n", &HashSet::new());
+        assert!(
+            networks
+                .iter()
+                .find(|n| n.ssid == "eduroam")
+                .unwrap()
+                .enterprise
+        );
+        assert!(
+            !networks
+                .iter()
+                .find(|n| n.ssid == "Casa")
+                .unwrap()
+                .enterprise
+        );
     }
 
     #[test]

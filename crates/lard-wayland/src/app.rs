@@ -622,6 +622,9 @@ impl App {
                 });
             }
             ShellAction::VolumeStep(step) => {
+                if let Some(shell) = &mut self.shell {
+                    shell.nudge_volume(step);
+                }
                 if let Some(services) = &self.services {
                     services.volume_step(step);
                 }
@@ -637,6 +640,9 @@ impl App {
                 }
             }
             ShellAction::BrightnessStep(step) => {
+                if let Some(shell) = &mut self.shell {
+                    shell.nudge_brightness(step);
+                }
                 if let Some(services) = &self.services {
                     services.brightness_step(step);
                 }
@@ -676,9 +682,13 @@ impl App {
                     services.scan_wifi();
                 }
             }
-            ShellAction::ConnectWifi { ssid, password } => {
+            ShellAction::ConnectWifi {
+                ssid,
+                password,
+                identity,
+            } => {
                 if let Some(services) = &self.services {
-                    services.connect_wifi(ssid, password);
+                    services.connect_wifi(ssid, identity, password);
                 }
             }
             ShellAction::DisconnectWifi => {
@@ -1980,8 +1990,12 @@ impl App {
                 }
             }
             Role::Popover => {
-                if let Some(shell) = &mut self.shell {
-                    shell.popover_move(pos);
+                let action = self
+                    .shell
+                    .as_mut()
+                    .and_then(|shell| shell.popover_move(pos));
+                if let Some(action) = action {
+                    self.perform(action);
                 }
             }
             Role::Wallpapers => {
@@ -2000,6 +2014,23 @@ impl App {
                 }
             }
             Role::Osd => {}
+        }
+        self.force_update = true;
+        self.mark_all_dirty();
+    }
+
+    /// Button released: end a slider drag in the popover and apply its final
+    /// value (the drag throttle may have dropped the last motion event).
+    fn pointer_release(&mut self, role: Role) {
+        if !matches!(role, Role::Popover) {
+            return;
+        }
+        let action = self
+            .shell
+            .as_mut()
+            .and_then(|shell| shell.popover_release());
+        if let Some(action) = action {
+            self.perform(action);
         }
         self.force_update = true;
         self.mark_all_dirty();
@@ -2205,7 +2236,7 @@ impl App {
                     self.pointer_press(role, pos, *button, &id);
                 }
             }
-            PointerEventKind::Release { .. } => {}
+            PointerEventKind::Release { .. } => self.pointer_release(role),
             PointerEventKind::Axis { vertical, .. } => {
                 self.pointer_axis(role, pos, vertical);
             }
