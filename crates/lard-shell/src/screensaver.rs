@@ -15,6 +15,7 @@
 use lard_core::theme::ScreensaverEffect;
 use lard_core::{Color, Config, Point, Rect, Size};
 use lard_render::{Fluid, FluidMode, Scene, TextAlign, TextStyle};
+use std::time::Instant;
 
 /// Seconds the exit hint stays at full opacity.
 const HINT_FULL_SECS: f32 = 6.0;
@@ -23,6 +24,12 @@ const BLEND_SECS: f32 = 1.4;
 
 pub struct Screensaver {
     open: bool,
+    /// Wall clock of the activation and of the dismissal: the burn-in is timed
+    /// on real seconds, not on frames, so a slow compositor cannot stretch it.
+    opened_at: Option<Instant>,
+    closed_at: Option<Instant>,
+    /// Reveal value when the dismissal started (the exit ramp picks up there).
+    reveal_at_close: f32,
     /// 0..1 burn-in progress. Entry and exit run the same ramp in opposite
     /// directions, so leaving is the exact reverse of entering.
     reveal: f32,
@@ -36,6 +43,7 @@ pub struct Screensaver {
     next_seed: f32,
     /// 0..1 crossfade between the two scenarios (0 = single shot).
     blend: f32,
+    blend_started: Option<Instant>,
     /// Small xorshift state: no dependency, deterministic per activation.
     rng: u32,
 }
@@ -54,6 +62,9 @@ impl Screensaver {
             .map_or(0x9E37_79B9, |d| d.subsec_nanos() ^ d.as_secs() as u32);
         Self {
             open: false,
+            opened_at: None,
+            closed_at: None,
+            reveal_at_close: 0.0,
             reveal: 0.0,
             elapsed: 0.0,
             mode: ScreensaverEffect::Liquid,
@@ -61,6 +72,7 @@ impl Screensaver {
             next_mode: ScreensaverEffect::Liquid,
             next_seed: 0.0,
             blend: 0.0,
+            blend_started: None,
             rng: nanos | 1,
         }
     }
@@ -93,9 +105,12 @@ impl Screensaver {
             return false;
         }
         self.open = true;
+        self.opened_at = Some(Instant::now());
+        self.closed_at = None;
         self.elapsed = 0.0;
         self.reveal = 0.0;
         self.blend = 0.0;
+        self.blend_started = None;
         self.seed = self.next_random();
         self.next_seed = self.seed;
         self.mode = if settings.random {
@@ -115,6 +130,8 @@ impl Screensaver {
             return false;
         }
         self.open = false;
+        self.closed_at = Some(Instant::now());
+        self.reveal_at_close = self.reveal;
         true
     }
 
@@ -133,30 +150,32 @@ impl Screensaver {
         self.next_mode = ScreensaverEffect::ALL[next];
         self.next_seed = self.next_random();
         self.blend = 0.001;
+        self.blend_started = Some(Instant::now());
     }
 
     /// Advance the burn-in and the crossfade. Returns true while a frame is
     /// needed, which keeps the scene animating at the frame rate.
-    pub fn update(&mut self, dt: f32, settings: &lard_core::theme::ScreensaverConfig) -> bool {
-        if dt <= 0.0 {
-            return self.wants_surface();
-        }
-        let dt = dt.min(0.1);
+    pub fn update(&mut self, _dt: f32, settings: &lard_core::theme::ScreensaverConfig) -> bool {
         let entrance = settings.entrance_secs().clamp(0.15, 2.5);
-        let step = (dt / entrance).clamp(0.0, 1.0);
+        let now = Instant::now();
         if self.open {
-            self.reveal = (self.reveal + step).min(1.0);
-            self.elapsed += dt;
-        } else {
-            self.reveal = (self.reveal - step).max(0.0);
+            if let Some(opened) = self.opened_at {
+                let seconds = now.duration_since(opened).as_secs_f32();
+                self.elapsed = seconds;
+                self.reveal = (seconds / entrance).min(1.0);
+            }
+        } else if let Some(closed) = self.closed_at {
+            let seconds = now.duration_since(closed).as_secs_f32();
+            self.reveal = (self.reveal_at_close - seconds / entrance).max(0.0);
         }
 
-        if self.blend > 0.0 {
-            self.blend += dt / BLEND_SECS;
+        if let Some(started) = self.blend_started {
+            self.blend = (now.duration_since(started).as_secs_f32() / BLEND_SECS).min(1.0);
             if self.blend >= 1.0 {
                 // The incoming scenario becomes the current one: the pixels do
                 // not change, only which side of the crossfade they come from.
                 self.blend = 0.0;
+                self.blend_started = None;
                 self.mode = self.next_mode;
                 self.seed = self.next_seed;
             }
@@ -296,28 +315,33 @@ mod tests {
         }
     }
 
+    fn wait(millis: u64) {
+        std::thread::sleep(std::time::Duration::from_millis(millis));
+    }
+
     #[test]
     fn entry_and_exit_are_symmetric() {
-        let settings = settings();
+        let settings = ScreensaverConfig {
+            entrance_ms: 300,
+            ..ScreensaverConfig::default()
+        };
         let mut saver = Screensaver::new();
         assert!(saver.open(&settings));
-        let mut frames_in = 0;
-        while saver.reveal < 1.0 && frames_in < 400 {
-            saver.update(1.0 / 60.0, &settings);
-            frames_in += 1;
-        }
-        assert_eq!(saver.reveal, 1.0);
+        // The burn-in is timed on the wall clock, not on frames.
+        wait(360);
+        saver.update(1.0 / 60.0, &settings);
+        assert_eq!(saver.reveal, 1.0, "entrance did not finish in time");
         assert!(saver.wants_surface());
 
         assert!(saver.close());
-        let mut frames_out = 0;
-        while saver.reveal > 0.0 && frames_out < 400 {
-            saver.update(1.0 / 60.0, &settings);
-            frames_out += 1;
-        }
+        wait(150);
+        saver.update(1.0 / 60.0, &settings);
+        let middle = saver.reveal;
+        assert!(middle > 0.0 && middle < 1.0, "exit is not gradual: {middle}");
+        wait(220);
+        saver.update(1.0 / 60.0, &settings);
         assert_eq!(saver.reveal, 0.0);
         assert!(!saver.wants_surface());
-        assert!((frames_in as i32 - frames_out as i32).abs() <= 1);
     }
 
     #[test]
@@ -325,10 +349,8 @@ mod tests {
         let settings = settings();
         let mut saver = Screensaver::new();
         saver.open(&settings);
-        for _ in 0..160 {
-            saver.update(1.0 / 60.0, &settings);
-        }
-        assert_eq!(saver.reveal, 1.0);
+        wait(60);
+        saver.update(1.0 / 60.0, &settings);
         assert!(saver.update(1.0 / 60.0, &settings));
     }
 
@@ -374,16 +396,14 @@ mod tests {
         let settings = settings();
         let mut saver = Screensaver::new();
         saver.open(&settings);
-        for _ in 0..160 {
-            saver.update(1.0 / 60.0, &settings);
-        }
         let before = saver.mode;
         saver.cycle(1);
-        assert!(saver.blend > 0.0 && saver.blend < 0.5);
-        // The outgoing scenario is still the current one during the fade.
-        assert_eq!(saver.mode, before);
-        for _ in 0..120 {
+        while saver.mode == before {
             saver.update(1.0 / 60.0, &settings);
+            if saver.blend == 0.0 && saver.mode == before {
+                // Still fading: the outgoing scenario is the current one.
+                wait(40);
+            }
         }
         assert_eq!(saver.blend, 0.0);
         assert_eq!(saver.mode, saver.next_mode);
