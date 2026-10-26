@@ -1547,11 +1547,11 @@ impl SettingsView {
             dimmed,
         );
 
-        // Effect picker: three chips, the selected one carries the accent.
-        let rect = Rect::new(content.x, y + 98.0, content.w, 46.0);
+        // Scenario picker: two rows of three, the selected one is accented.
+        let rect = Rect::new(content.x, y + 96.0, content.w, 72.0);
         scene.text(
             "Scenario",
-            Point::new(rect.x + 8.0, rect.y + 4.0),
+            Point::new(rect.x + 8.0, rect.y + 14.0),
             TextStyle {
                 size: fonts.size_body,
                 weight: fonts.weight_medium,
@@ -1565,21 +1565,23 @@ impl SettingsView {
             } else {
                 "Frecce ← → per cambiarli al volo"
             },
-            Point::new(rect.x + 8.0, rect.y + 24.0),
+            Point::new(rect.x + 8.0, rect.y + 36.0),
             TextStyle {
                 size: fonts.size_small - 1.0,
                 ..Default::default()
             },
             theme.text_muted.scale_alpha(0.58 * p),
         );
-        let chip_h = 30.0;
-        let gap = 8.0;
-        let chip_w = ((rect.w * 0.34 - gap * 2.0) / 3.0).clamp(78.0, 150.0);
+        let chip_h = 28.0;
+        let gap = 6.0;
+        let chip_w = ((rect.w * 0.44 - gap * 2.0) / 3.0).clamp(70.0, 124.0);
         let total = chip_w * 3.0 + gap * 2.0;
         for (index, effect) in lard_core::theme::ScreensaverEffect::ALL.iter().enumerate() {
+            let column = (index % 3) as f32;
+            let row = (index / 3) as f32;
             let chip = Rect::new(
-                rect.right() - total + index as f32 * (chip_w + gap),
-                rect.y + 8.0,
+                rect.right() - total + column * (chip_w + gap),
+                rect.y + 4.0 + row * (chip_h + gap),
                 chip_w,
                 chip_h,
             );
@@ -1630,7 +1632,7 @@ impl SettingsView {
 
         self.toggle_row(
             scene,
-            Rect::new(content.x, y + 146.0, content.w, 46.0),
+            Rect::new(content.x, y + 174.0, content.w, 46.0),
             "Casuale",
             "Scenario e composizione diversi a ogni ingresso",
             saver.random,
@@ -1640,7 +1642,7 @@ impl SettingsView {
         );
         self.stepper_row_state(
             scene,
-            Rect::new(content.x, y + 194.0, content.w, 46.0),
+            Rect::new(content.x, y + 220.0, content.w, 46.0),
             "Vetro",
             &format!(
                 "{}%",
@@ -1654,7 +1656,7 @@ impl SettingsView {
         );
         self.stepper_row_state(
             scene,
-            Rect::new(content.x, y + 242.0, content.w, 46.0),
+            Rect::new(content.x, y + 266.0, content.w, 46.0),
             "Ingresso",
             &format!("{:.1} s", saver.entrance_secs()),
             SettingsAction::Step(Step::ScreensaverEntrance, -100),
@@ -1665,7 +1667,7 @@ impl SettingsView {
         );
         self.stepper_row_state(
             scene,
-            Rect::new(content.x, y + 290.0, content.w, 46.0),
+            Rect::new(content.x, y + 312.0, content.w, 46.0),
             "Velocità",
             &format!("{:.1}×", saver.speed),
             SettingsAction::Step(Step::ScreensaverSpeed, -1),
@@ -1676,7 +1678,7 @@ impl SettingsView {
         );
         self.stepper_row_state(
             scene,
-            Rect::new(content.x, y + 338.0, content.w, 46.0),
+            Rect::new(content.x, y + 358.0, content.w, 46.0),
             "Intensità",
             &format!("{}%", (saver.intensity * 100.0).round() as u32),
             SettingsAction::Step(Step::ScreensaverIntensity, -5),
@@ -1687,7 +1689,7 @@ impl SettingsView {
         );
         self.toggle_row(
             scene,
-            Rect::new(content.x, y + 386.0, content.w, 46.0),
+            Rect::new(content.x, y + 404.0, content.w, 46.0),
             "Orologio",
             "Ora e data nell'angolo del salvaschermo",
             saver.show_clock,
@@ -1697,7 +1699,7 @@ impl SettingsView {
         );
         scene.text(
             "Il desktop si congela in vetro e le forme bruciano dentro. Frecce per gli scenari.",
-            Point::new(content.x, y + 444.0),
+            Point::new(content.x, y + 458.0),
             TextStyle {
                 size: fonts.size_small - 1.0,
                 ..Default::default()
@@ -1772,7 +1774,7 @@ impl SettingsView {
         }
         scene.text(
             "La configurazione è TOML e viene salvata con backup .toml.bak.",
-            Point::new(content.x, y + 290.0),
+            Point::new(content.x, y + 312.0),
             TextStyle {
                 size: config.font.size_small - 1.0,
                 ..Default::default()

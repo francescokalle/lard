@@ -77,6 +77,10 @@ impl Gpu {
         .context("failed to create wgpu device")?;
 
         device.on_uncaptured_error(Arc::new(|error| {
+            // Also on stderr: headless tools (previews, probes) do not install a
+            // tracing subscriber, and a swallowed validation error used to look
+            // like a black screen.
+            eprintln!("wgpu: {error}");
             tracing::error!(%error, "wgpu validation error");
         }));
 

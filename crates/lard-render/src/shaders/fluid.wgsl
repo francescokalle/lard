@@ -100,7 +100,7 @@ fn node(i: f32, t: f32, seed: f32) -> vec2<f32> {
 fn field(p: vec2<f32>, t: f32, seed: f32) -> f32 {
     var sum = 0.0;
     var a = node(0.0, t, seed);
-    for (var i = 1; i <= 9; i = i + 1) {
+    for (var i = 1; i <= 8; i = i + 1) {
         let b = node(f32(i), t, seed);
         let radius = 0.048 + 0.014 * sin(t * 0.31 + f32(i) * 2.1 + seed * 5.0);
         let pa = p - a;
@@ -113,74 +113,113 @@ fn field(p: vec2<f32>, t: f32, seed: f32) -> f32 {
     return sum;
 }
 
-/// Shaded body: premultiplied colour, coverage and the brightness used to
-/// order the burn-in.
-struct Body {
-    color: vec3<f32>,
-    alpha: f32,
-    light: f32,
-};
-
-/// A single liquid body: premultiplied colour and alpha of the chain.
-fn liquid_layer(p: vec2<f32>, t: f32, mode: u32, seed: f32, intensity: f32) -> Body {
-        let height = field(p, t, seed);
-        let eps = 0.02;
-        let dx = field(p + vec2<f32>(eps, 0.0), t, seed) - height;
-        let dy = field(p + vec2<f32>(0.0, eps), t, seed) - height;
-        // Antialiasing: the iso-line of the potential is only one pixel wide
-        // in field units, which is `gradient / screen height`. Normalising the
-        // threshold by that width gives a clean edge whatever the slope, while
-        // the fixed epsilon used before produced the stair steps.
-        let gradient = max(length(vec2<f32>(dx, dy)) / eps, 0.0005);
-        let aa = clamp(gradient / max(f.screen.y, 1.0), 0.0004, 0.08);
-        let inside = smoothstep(1.0 - aa, 1.0 + aa, height);
-        let normal = normalize(vec3<f32>(-dx / eps * 0.055, -dy / eps * 0.055, 1.0));
-        let facing = clamp(normal.z, 0.0, 1.0);
-        let fresnel = pow(1.0 - facing, 2.4);
-        // Light slightly above the viewer: a lateral light leaves a dark pit
-        // in the middle of every volume (the normal there points straight up).
-        let key = normalize(vec3<f32>(-0.10, 0.12, 0.99));
-        let specular = pow(clamp(dot(normal, key), 0.0, 1.0), 22.0) * inside;
-
-        var color = vec3<f32>(0.0);
-        if (mode == 0u) {
-            // Liquid: gold-filled glass. The alpha stays below one on purpose:
-            // the room must read through the volumes.
-            color = f.accent.rgb * (0.10 + 0.30 * facing + 0.52 * fresnel * fresnel);
-            color += f.accent.rgb * fresnel * fresnel * 0.55 * (0.4 + 0.6 * intensity);
-            color += f.light.rgb * specular * (0.22 + 0.38 * intensity);
-        } else {
-            // Mercury: the surface mirrors a bright room. A horizon line
-            // across every volume is what sells polished chrome.
-            let horizon = smoothstep(-0.65, 0.45, normal.y * 2.0 + 0.16);
-            color = mix(vec3<f32>(0.012, 0.015, 0.020), f.light.rgb, horizon * (0.26 + 0.46 * facing));
-            color += f.accent.rgb * fresnel * 0.45;
-            color += f.light.rgb * specular * (0.60 + 0.80 * intensity) * 1.6;
-        }
-        let halo = exp(-abs(height - 1.0) * 26.0) * (1.0 - inside);
-        let alpha = clamp(inside * 0.72 + halo * 0.26, 0.0, 1.0);
-        let premul = color * inside + f.accent.rgb * halo * (0.10 + 0.30 * intensity);
-        let light = max(max(color.r, color.g), color.b);
-        return Body(premul, alpha, light);
+/// Rotate the sampling position around the centre, strongest near it: the
+/// liquid chain read through this becomes a whirlpool.
+fn swirl(p: vec2<f32>, t: f32, amount: f32) -> vec2<f32> {
+    if (amount <= 0.0) {
+        return p;
+    }
+    let radius = max(length(p), 0.05);
+    let angle = atan2(p.y, p.x) + amount / (radius + 0.30) + t * 0.10;
+    return vec2<f32>(cos(angle), sin(angle)) * radius;
 }
 
-/// One scenario: two liquid masses at different depths, or the aurora.
-fn shot(p: vec2<f32>, t: f32, mode: u32, seed: f32, intensity: f32) -> Body {
-    if (mode == 0u || mode == 1u) {
-        // Near mass, plus a larger, slower one behind it: the room reads as
-        // full of liquid instead of a single blob on a table.
-        let front = liquid_layer(p, t, mode, seed, intensity);
-        let back = liquid_layer(
-            p * 0.84 + vec2<f32>(0.16, -0.12),
-            t * 0.85,
-            mode,
-            seed + 0.41,
-            intensity * 0.65,
+/// Reshape the sampling space per scenario. Every look shares the same liquid
+/// field, so the shader stays small: only the space the field is read through
+/// changes.
+fn scene_warp(p: vec2<f32>, t: f32, style: u32) -> vec2<f32> {
+    if (style == 2u) {
+        // Vortex: whirlpool.
+        return swirl(p, t, 0.62);
+    }
+    if (style == 3u) {
+        // Ripples: concentric rings propagating outwards.
+        let radius = length(p);
+        return p * (1.0 + 0.16 * sin(radius * 16.0 - t * 2.6));
+    }
+    if (style == 4u) {
+        // Storm: long, heavy waves.
+        return (p + vec2<f32>(
+            sin(p.y * 1.25 + t * 0.21),
+            cos(p.x * 1.10 - t * 0.19),
+        ) * 0.45) * 0.78;
+    }
+    return p;
+}
+
+/// The liquid body: one metaball field, shaded per scenario.
+fn liquid_layer(
+    p: vec2<f32>,
+    t: f32,
+    style: u32,
+    seed: f32,
+    intensity: f32,
+) -> vec4<f32> {
+    let q = scene_warp(p, t, style);
+    let height = field(q, t, seed);
+    let eps = 0.02;
+    let dx = field(q + vec2<f32>(eps, 0.0), t, seed) - height;
+    let dy = field(q + vec2<f32>(0.0, eps), t, seed) - height;
+    // Antialiasing: the iso-line of the potential is one pixel wide in field
+    // units, i.e. `gradient / screen height`. Normalising the threshold by
+    // that width keeps the edge clean whatever the slope.
+    let gradient = max(length(vec2<f32>(dx, dy)) / eps, 0.0005);
+    let aa = clamp(gradient / max(f.screen.y, 1.0), 0.0004, 0.08);
+    let inside = smoothstep(1.0 - aa, 1.0 + aa, height);
+    let normal = normalize(vec3<f32>(-dx / eps * 0.055, -dy / eps * 0.055, 1.0));
+    let facing = clamp(normal.z, 0.0, 1.0);
+    let fresnel = pow(1.0 - facing, 2.4);
+    // Light slightly above the viewer: a lateral light leaves a dark pit in
+    // the middle of every volume (the normal there points straight up).
+    let key = normalize(vec3<f32>(-0.10, 0.12, 0.99));
+    let specular = pow(clamp(dot(normal, key), 0.0, 1.0), 22.0) * inside;
+
+    var color = vec3<f32>(0.0);
+    if (style == 1u) {
+        // Mercury: the surface mirrors a bright room. A horizon line across
+        // every volume is what sells polished chrome.
+        let horizon = smoothstep(-0.65, 0.45, normal.y * 2.0 + 0.16);
+        // Neutral dark instead of the theme black: chrome must not look brown
+        // when the palette is warm.
+        let chrome = mix(
+            vec3<f32>(0.012, 0.015, 0.020),
+            f.light.rgb,
+            horizon * (0.26 + 0.46 * facing),
         );
-        let alpha = front.alpha + back.alpha * (1.0 - front.alpha);
-        let rgb = front.color + back.color * 0.40 * (1.0 - front.alpha);
-        let light = max(front.light, back.light * 0.50);
-        return Body(rgb, alpha, light);
+        color = mix(f.deep.rgb, chrome, inside);
+        color += f.accent.rgb * fresnel * 0.45 * inside;
+        color += f.light.rgb * specular * (0.60 + 0.80 * intensity) * 1.6;
+    } else if (style == 3u) {
+        // Water: a thin, very reflective sheet with sharp crests.
+        color = f.accent.rgb * (0.04 + 0.14 * facing + 0.20 * fresnel);
+        color += f.light.rgb * specular * (0.70 + 0.90 * intensity) * 1.4;
+    } else if (style == 4u) {
+        // Storm: heavy, soft liquid clouds with broad highlights.
+        color = f.accent.rgb * (0.05 + 0.22 * facing + 0.30 * fresnel);
+        color += f.light.rgb * specular * (0.25 + 0.45 * intensity);
+    } else {
+        // Liquid and vortex: gold-filled glass. The alpha stays below one on
+        // purpose: the room must read through the volumes.
+        color = f.accent.rgb * (0.10 + 0.30 * facing + 0.52 * fresnel * fresnel);
+        color += f.accent.rgb * fresnel * fresnel * 0.55 * (0.4 + 0.6 * intensity);
+        color += f.light.rgb * specular * (0.22 + 0.38 * intensity);
+    }
+
+    let halo = exp(-abs(height - 1.0) * 26.0) * (1.0 - inside);
+    let base = select(0.72, 0.60, style == 3u);
+    let alpha = clamp(inside * base + halo * 0.26, 0.0, 1.0);
+    let premul = color * inside + f.accent.rgb * halo * (0.10 + 0.30 * intensity);
+    return vec4<f32>(premul, alpha);
+}
+
+/// One scenario: the liquid (in any of its looks) or the aurora.
+fn shot(p: vec2<f32>, t: f32, mode: u32, seed: f32, intensity: f32) -> vec4<f32> {
+
+    if (mode != 2u) {
+        // Everything but the aurora is the same liquid field read through a
+        // different warp (and shaded differently). A single call site keeps
+        // the compiled shader small.
+        return liquid_layer(p, t, mode, seed, intensity);
     }
 
     // Aurora: three drifting curtains of light.
@@ -204,8 +243,7 @@ fn shot(p: vec2<f32>, t: f32, mode: u32, seed: f32, intensity: f32) -> Body {
     let rays = 0.5 + 0.5 * sin(p.x * 26.0 + 3.0 * sin(p.y * 3.0 + t * 0.4) + t * 0.9);
     color *= 0.82 + 0.30 * rays;
     alpha = clamp(alpha, 0.0, 1.0);
-    let light = max(max(color.r, color.g), color.b);
-    return Body(color, alpha, light);
+    return vec4<f32>(color, alpha);
 }
 
 @fragment
@@ -221,6 +259,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let blend = clamp(f.variants.z, 0.0, 1.0);
     let progress = clamp(f.variants.w, 0.0, 1.0);
     let uv = in.uv;
+
+
     let p = (uv - vec2<f32>(0.5, 0.5)) * vec2<f32>(aspect, 1.0);
 
     // ---- room: volumetric fog and caustics, all procedural -----------------
@@ -250,24 +290,24 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var body = shot(p, t, f.modes.x, seed_a, intensity);
     if (blend > 0.001) {
         let other = shot(p, t, f.modes.y, seed_b, intensity);
-        let k = smoothstep(0.0, 1.0, blend);
-        body.color = mix(body.color, other.color, k);
-        body.alpha = mix(body.alpha, other.alpha, k);
-        body.light = mix(body.light, other.light, k);
+        body = mix(body, other, smoothstep(0.0, 1.0, blend));
     }
+
 
     // Burn-in of the objects: bright structures first, additively, then the
     // bodies. `appear` works on the unpremultiplied brightness of each pixel.
-    let body_luma = body.light;
+    // Brightness of the body, for the burn-in order. Premultiplied is fine:
+    // what matters is ranking the emissive parts before the dark ones.
+    let body_luma = max(max(body.r, body.g), body.b);
     let start = 0.86 - progress * 1.10;
     let appear = smoothstep(start, start + 0.18, body_luma) * smoothstep(0.0, 0.02, progress);
     let body_fill = smoothstep(0.06, 0.45, progress);
     let glow = 1.0 + (1.0 - body_fill) * 1.65;
-    let body_alpha = body.alpha * appear * body_fill;
-    var body_rgb = body.color * appear * glow;
+    let body_alpha = body.a * appear * body_fill;
+    var body_rgb = body.rgb * appear * glow;
     // Light from the bodies is composited additively over the room: that is
     // what makes them look like they are burning into the screen.
-    body_rgb += body.color * appear * (1.0 - body_fill) * 0.9 * max(0.0, 1.0 - body_alpha);
+    body_rgb += body.rgb * appear * (1.0 - body_fill) * 0.9 * max(0.0, 1.0 - body_alpha);
 
     // The room closes in last, under the objects.
     let room_alpha = smoothstep(0.50, 1.0, progress);

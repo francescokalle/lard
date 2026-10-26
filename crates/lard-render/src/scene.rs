@@ -190,6 +190,9 @@ pub enum FluidMode {
     Liquid,
     Mercury,
     Aurora,
+    Vortex,
+    Ripples,
+    Storm,
 }
 
 /// Full-screen animated background.

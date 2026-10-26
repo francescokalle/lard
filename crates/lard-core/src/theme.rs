@@ -444,10 +444,23 @@ pub enum ScreensaverEffect {
     Mercury,
     /// Iridescent fluid ribbons.
     Aurora,
+    /// The same liquid, caught in a slow whirlpool.
+    Vortex,
+    /// A glassy water surface with interfering ripples.
+    Ripples,
+    /// Slow, heavy clouds of liquid.
+    Storm,
 }
 
 impl ScreensaverEffect {
-    pub const ALL: [Self; 3] = [Self::Liquid, Self::Mercury, Self::Aurora];
+    pub const ALL: [Self; 6] = [
+        Self::Liquid,
+        Self::Mercury,
+        Self::Aurora,
+        Self::Vortex,
+        Self::Ripples,
+        Self::Storm,
+    ];
 
     #[must_use]
     pub const fn label(self) -> &'static str {
@@ -455,6 +468,9 @@ impl ScreensaverEffect {
             Self::Liquid => "Liquido",
             Self::Mercury => "Mercurio",
             Self::Aurora => "Aurora",
+            Self::Vortex => "Vortice",
+            Self::Ripples => "Onde",
+            Self::Storm => "Tempesta",
         }
     }
 }

@@ -99,7 +99,10 @@ impl Screensaver {
         self.seed = self.next_random();
         self.next_seed = self.seed;
         self.mode = if settings.random {
-            ScreensaverEffect::ALL[(self.next_random() * 3.0) as usize % 3]
+            {
+                let count = ScreensaverEffect::ALL.len();
+                ScreensaverEffect::ALL[(self.next_random() * count as f32) as usize % count]
+            }
         } else {
             settings.effect
         };
@@ -270,6 +273,9 @@ fn fluid_mode(effect: ScreensaverEffect) -> FluidMode {
         ScreensaverEffect::Liquid => FluidMode::Liquid,
         ScreensaverEffect::Mercury => FluidMode::Mercury,
         ScreensaverEffect::Aurora => FluidMode::Aurora,
+        ScreensaverEffect::Vortex => FluidMode::Vortex,
+        ScreensaverEffect::Ripples => FluidMode::Ripples,
+        ScreensaverEffect::Storm => FluidMode::Storm,
     }
 }
 

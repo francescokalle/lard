@@ -777,6 +777,9 @@ impl Renderer {
             FluidMode::Liquid => 0u32,
             FluidMode::Mercury => 1u32,
             FluidMode::Aurora => 2u32,
+            FluidMode::Vortex => 3u32,
+            FluidMode::Ripples => 4u32,
+            FluidMode::Storm => 5u32,
         };
         let data = FluidGpu {
             screen: [screen.0 as f32, screen.1 as f32],
@@ -821,7 +824,10 @@ impl Renderer {
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    // Transparent clear: the shader writes premultiplied colour,
+                    // so the alpha of the layer has to survive to the output
+                    // (the flood and the burn-in depend on it).
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                     store: wgpu::StoreOp::Store,
                 },
             });
