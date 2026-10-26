@@ -523,16 +523,19 @@ impl Launcher {
             },
         );
         if (self.elapsed % 1.06) < 0.53 {
-            let caret_x = card.x
-                + 22.0
-                + if self.query.is_empty() {
-                    0.0
-                } else {
-                    approx_width(&shown_query, fonts.size_title + 2.0)
-                }
-                + 26.0;
+            // With an empty query the caret goes in the gap after the search
+            // icon: at the text origin it would touch the first glyph.
+            let caret_x = if self.query.is_empty() {
+                card.x + 43.0
+            } else {
+                card.x
+                    + 22.0
+                    + approx_width(&shown_query, fonts.size_title + 2.0)
+                    + 26.0
+                    + 1.5
+            };
             scene.rect(
-                Rect::new(caret_x + 1.0, card.y + 21.0, 1.5, 22.0),
+                Rect::new(caret_x, card.y + 21.0, 1.5, 22.0),
                 theme.accent.scale_alpha(p),
                 0.75,
             );
