@@ -643,12 +643,16 @@ impl Renderer {
 
         self.fluid_frame = scene.fluid;
         if let Some(fluid) = self.fluid_frame {
-            // The effect is drawn at half resolution: the shapes are soft by
-            // definition, and the fill rate is what an integrated GPU cannot
-            // afford at full size.
-            let half = ((screen.0.div_ceil(2)).max(1), (screen.1.div_ceil(2)).max(1));
-            self.ensure_fluid_target(half);
-            self.write_fluid_uniform(&fluid, half);
+            // The effect is soft by definition, so it is drawn at a third of
+            // the output and upscaled: on an integrated GPU the fill rate is
+            // what decides whether the scene runs at 60 fps or at five.
+            let scale = 3;
+            let small = (
+                (screen.0 / scale).max(1),
+                (screen.1 / scale).max(1),
+            );
+            self.ensure_fluid_target(small);
+            self.write_fluid_uniform(&fluid, small);
         }
         for cmd in &scene.images {
             if !self.image_atlas.has(cmd.id) {
