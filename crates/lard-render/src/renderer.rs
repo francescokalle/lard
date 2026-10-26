@@ -1,9 +1,10 @@
-use crate::scene::Scene;
+use crate::scene::{Scene, TextAlign};
 use crate::surface::RenderSurface;
 use crate::text::physical_style;
 use crate::text::{TextEngine, align_offset};
 use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
+use lard_core::Point;
 use lard_core::theme::FontConfig;
 use std::collections::HashMap;
 
@@ -494,8 +495,7 @@ impl Renderer {
                 cmd.style.wrap,
             );
             let box_width = cmd.style.max_width.map(|w| w * scale);
-            let dx = cmd.origin.x * scale + align_offset(cmd.style.align, box_width, layout.width);
-            let dy = cmd.origin.y * scale;
+            let (dx, dy) = run_origin(cmd.origin, scale, cmd.style.align, box_width, layout.width);
             let color = cmd.color.linear_straight();
 
             for glyph in &layout.glyphs {
@@ -659,8 +659,29 @@ impl Renderer {
     }
 }
 
-fn create_pipelines(
-    device: &wgpu::Device,
+/// Top-left corner of a text run, in physical pixels.
+///
+/// Every glyph quad is a 1:1 copy of its coverage bitmap, so the run has to
+/// start on the pixel grid. With a fractional origin the linear sampler reads
+/// the outermost antialiased rows of the glyph halfway into the transparent
+/// atlas padding, which visually shaves them off the top and bottom of the
+/// text. Rounding the origin (alignment included) keeps the whole bitmap
+/// inside its quad and renders the antialiasing at full strength.
+#[must_use]
+fn run_origin(
+    origin: Point,
+    scale: f32,
+    align: TextAlign,
+    box_width: Option<f32>,
+    measured: f32,
+) -> (f32, f32) {
+    (
+        (origin.x * scale + align_offset(align, box_width, measured)).round(),
+        (origin.y * scale).round(),
+    )
+}
+
+fn create_pipelines(    device: &wgpu::Device,
     format: wgpu::TextureFormat,
     rect_layout: &wgpu::PipelineLayout,
     text_layout: &wgpu::PipelineLayout,
@@ -763,4 +784,30 @@ fn create_pipelines(
     });
 
     Pipelines { rect, text, image }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_runs_start_on_whole_pixels() {
+        // The bar title is centred at y = 19 with size_small: the layout top
+        // lands on 12.18, and drawing it there shaved the glyph edges.
+        assert_eq!(
+            run_origin(Point::new(10.3, 12.18), 1.0, TextAlign::Left, None, 120.0),
+            (10.0, 12.0)
+        );
+        // A half-pixel offset is the worst case: pick the nearest row.
+        assert_eq!(
+            run_origin(Point::new(0.0, 11.5), 1.0, TextAlign::Left, None, 10.0),
+            (0.0, 12.0)
+        );
+        // Centring is applied before snapping, so the glyphs stay inside the box.
+        let (x, _) = run_origin(Point::new(0.0, 0.0), 1.0, TextAlign::Center, Some(101.0), 100.0);
+        assert_eq!(x, 1.0);
+        // Fractional scales snap in physical pixels too.
+        let (x, y) = run_origin(Point::new(10.0, 10.0), 1.5, TextAlign::Left, None, 10.0);
+        assert_eq!((x, y), (15.0, 15.0));
+    }
 }

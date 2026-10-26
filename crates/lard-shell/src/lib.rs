@@ -1885,9 +1885,9 @@ impl Shell {
         // The advances come from the real font: the island is sized on the
         // real text, so nothing gets cut for a wrong guess.
         const SAFETY: f32 = 1.03;
-        let app_w = approx_width(&preview.app, fonts.size_small - 0.5) * SAFETY;
+        let app_w = approx_width(&preview.app, fonts.size_small) * SAFETY;
         let summary_w = approx_width(&preview.summary, fonts.size_body) * SAFETY;
-        let body_w = approx_width(&preview.body, fonts.size_small - 1.0) * SAFETY;
+        let body_w = approx_width(&preview.body, fonts.size_small) * SAFETY;
         let text_w = (app_w + 8.0 + summary_w).max(body_w);
         // The island always reads as a proper panel: it grows with the
         // notification but never shrinks below a comfortable width.
@@ -1946,7 +1946,7 @@ impl Shell {
             text_x,
             line_y,
             TextStyle {
-                size: fonts.size_small - 0.5,
+                size: fonts.size_small,
                 weight: fonts.weight_semibold,
                 align: TextAlign::Left,
                 max_width: Some(app_w + 6.0),
@@ -1971,11 +1971,11 @@ impl Shell {
         );
         if !preview.body.is_empty() {
             scene.text_center_y(
-                truncate_to_width(&preview.body, fonts.size_small - 1.0, body_max),
+                truncate_to_width(&preview.body, fonts.size_small, body_max),
                 text_x,
                 line_y + if two_lines { 17.0 } else { 15.0 },
                 TextStyle {
-                    size: fonts.size_small - 1.0,
+                    size: fonts.size_small,
                     align: TextAlign::Left,
                     max_width: Some(body_max),
                     wrap: false,

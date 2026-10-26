@@ -6,7 +6,8 @@
 
 use crate::scene::{FontFamily, TextAlign, TextStyle};
 use cosmic_text::{
-    Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent, Weight,
+    Attrs, Buffer, CacheKeyFlags, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent,
+    Weight,
 };
 use fontdb::Source;
 use lard_core::theme::FontConfig;
@@ -18,6 +19,10 @@ const ATLAS_SIZE: u32 = 2048;
 // neighbouring bitmaps even when a glyph is drawn at a fractional position.
 const PADDING: u32 = 2;
 const MAX_CACHE_ENTRIES: usize = 512;
+/// Below this size glyphs are rasterized from their real outlines instead of
+/// being snapped to the pixel grid. Hinting at 10-12 px shaves the top and
+/// bottom rows of round letters, which makes small UI text look cropped.
+const HINTING_MAX_SIZE: f32 = 16.0;
 
 #[derive(Clone, Copy, Debug)]
 pub struct GlyphQuad {
@@ -211,7 +216,12 @@ impl TextEngine {
             width = width.max(run.line_w);
             height = height.max(run.line_top + run.line_height);
             for glyph in run.glyphs {
-                let physical = glyph.physical((0.0, run.line_y), 1.0);
+                let mut physical = glyph.physical((0.0, run.line_y), 1.0);
+                // Keep the letterforms intact at UI sizes: hinting would
+                // crop their ascenders/descenders by a pixel.
+                if size < HINTING_MAX_SIZE {
+                    physical.cache_key.flags |= CacheKeyFlags::DISABLE_HINTING;
+                }
                 let key = physical.cache_key;
                 let cached = self.glyph_cache.get(&key).copied();
                 let glyph = if let Some(cached) = cached {

@@ -460,7 +460,9 @@ impl Bar {
         // Reserve the width of "100%" up front: sizing the meter on the
         // current reading made the percentage wrap onto a second line the
         // moment CPU or RAM reached three digits.
-        let text_size = fonts.size_small - 0.5;
+        // Never below the base small size: anything smaller loses its tops
+        // and bottoms on a 1x display.
+        let text_size = fonts.size_small;
         let meter_text_w = (approx_width("100%", text_size) * 1.03).ceil();
         let meter_w = 16.0 + meter_text_w + 10.0;
         let battery = data.battery;
@@ -605,7 +607,7 @@ impl Bar {
         let hud_p = osd_p;
 
         let clock_w = approx_width(data.clock, fonts.size_small + 1.0) + 6.0;
-        let date_w = approx_width(data.date, fonts.size_small - 1.0) + 4.0;
+        let date_w = approx_width(data.date, fonts.size_small) + 4.0;
         let bell_w = 22.0;
         let osd_center_w = 208.0;
         let mut target_w = if bar.show_clock {
@@ -698,7 +700,7 @@ impl Bar {
                         date_x,
                         size.h * 0.5 + clock_dy,
                         TextStyle {
-                            size: fonts.size_small - 1.0,
+                            size: fonts.size_small,
                             weight: fonts.weight_regular,
                             align: TextAlign::Left,
                             max_width: Some(date_w + 2.0),
@@ -757,7 +759,7 @@ impl Bar {
                         center_x + pad,
                         mid_y,
                         TextStyle {
-                            size: fonts.size_small - 0.5,
+                            size: fonts.size_small,
                             weight: fonts.weight_semibold,
                             ..Default::default()
                         },
@@ -770,7 +772,7 @@ impl Bar {
                         center_x + center_w - pad,
                         mid_y,
                         TextStyle {
-                            size: fonts.size_small - 1.0,
+                            size: fonts.size_small,
                             weight: fonts.weight_medium,
                             align: TextAlign::Right,
                             max_width: Some(44.0),
