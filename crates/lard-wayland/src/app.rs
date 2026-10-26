@@ -2941,9 +2941,10 @@ impl Dispatch2<ExtIdleNotificationV1, App> for IdleData {
         tracing::debug!(?event, "idle notification event");
         match event {
             ext_idle_notification_v1::Event::Idled => {
-                tracing::info!("session idle: showing the screensaver");
-                if let Some(shell) = &mut app.shell {
-                    shell.open_screensaver();
+                if let Some(shell) = &mut app.shell
+                    && shell.open_screensaver()
+                {
+                    tracing::info!("session idle: showing the screensaver");
                 }
                 app.force_update = true;
                 app.mark_all_dirty();
