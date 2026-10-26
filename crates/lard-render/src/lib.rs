@@ -17,3 +17,22 @@ pub use gpu::Gpu;
 pub use renderer::{RenderStats, Renderer};
 pub use scene::{Corners, Fluid, FluidMode, FontFamily, Scene, Shadow, TextAlign, TextStyle};
 pub use surface::RenderSurface;
+
+#[cfg(test)]
+mod shader_tests {
+    /// The shaders are compiled at runtime, so a typo would only show up as a
+    /// blank screen on the device. Parse every one of them in tests instead.
+    #[test]
+    fn every_shader_parses() {
+        for (name, source) in [
+            ("rect", include_str!("shaders/rect.wgsl")),
+            ("text", include_str!("shaders/text.wgsl")),
+            ("image", include_str!("shaders/image.wgsl")),
+            ("fluid", include_str!("shaders/fluid.wgsl")),
+            ("fluid_resolve", include_str!("shaders/fluid_resolve.wgsl")),
+        ] {
+            naga::front::wgsl::parse_str(source)
+                .unwrap_or_else(|error| panic!("{name}.wgsl: {}", error.emit_to_string(source)));
+        }
+    }
+}

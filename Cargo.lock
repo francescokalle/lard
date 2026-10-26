@@ -846,6 +846,7 @@ dependencies = [
  "cosmic-text",
  "fontdb",
  "lard-core",
+ "naga",
  "pollster",
  "raw-window-handle",
  "tracing",

@@ -219,9 +219,7 @@ pub struct Fluid {
     pub deep: Color,
     pub accent: Color,
     pub light: Color,
-    /// Image id of the wallpaper to frost behind the objects, if any.
-    pub wallpaper: Option<u32>,
-    /// How much of `deep` is layered over the frosted wallpaper.
+    /// 0..0.95: how much the procedural room is darkened behind the objects.
     pub veil: f32,
     /// 0..1 opacity of the whole effect.
     pub fade: f32,

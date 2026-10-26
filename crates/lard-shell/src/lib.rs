@@ -311,11 +311,6 @@ impl Shell {
         };
         shell.apply_niri_theme();
         shell.restore_wallpaper();
-        // Decode the screensaver backdrop now: the first activation should not
-        // wait for a 4K JPEG.
-        shell
-            .screensaver
-            .request_wallpaper(&shell.config);
         shell
     }
 

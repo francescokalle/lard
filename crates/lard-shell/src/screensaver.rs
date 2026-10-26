@@ -1,34 +1,21 @@
-//! Built-in screensaver: the desktop itself, frosted, with the shell's liquid
-//! glass objects floating over it.
+//! Built-in screensaver: a procedural liquid environment that appears when the
+//! session has been idle for a while.
 //!
 //! It is deliberately *not* a lock screen: the compositor reports activity
 //! through `ext-idle-notify-v1` and any input dismisses it. It is not a video
-//! either: the wallpaper is the room, the liquid bodies are drawn by the
-//! renderer and the droplets are a small physical simulation updated here. The
-//! arrow keys move between scenarios, so the screen keeps being "the same
-//! environment" instead of a slideshow.
+//! either: the room (fog and caustics), the liquid bodies and the light are all
+//! evaluated per pixel by `shaders/fluid.wgsl`, so the scene keeps evolving
+//! without ever repeating a frame.
 //!
-//! Entering is a burn-in: the bright structures of the objects appear first,
-//! additively over the live session; the bodies follow; the frosted backdrop
-//! closes the scene last. Leaving runs the same process backwards.
+//! Entering is a burn-in: the bright structures appear first, additively over
+//! the live session; the bodies follow; the room closes in last. Leaving runs
+//! the same process backwards. The arrow keys switch scenario, so the screen
+//! stays "the usual environment" instead of turning into a slideshow.
 
-use lard_core::theme::{ScreensaverConfig, ScreensaverEffect};
+use lard_core::theme::ScreensaverEffect;
 use lard_core::{Color, Config, Point, Rect, Size};
 use lard_render::{Fluid, FluidMode, Scene, TextAlign, TextStyle};
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 
-/// Result of the wallpaper decode thread: the file and its pixels (empty when
-/// the image could not be read).
-type WallpaperSlot = Arc<Mutex<Option<(PathBuf, Vec<u8>)>>>;
-
-/// Image-atlas slot of the frosted wallpaper. Fixed so re-uploading the same
-/// bitmap is a no-op in the renderer.
-/// Cell 64 of the image atlas: app icons start at 128, wallpaper thumbs at 0.
-const WALLPAPER_ID: u32 = 0x00C0_0040;
-const WALLPAPER_W: u32 = 128;
-const WALLPAPER_H: u32 = 72;
-const DROPLETS: usize = 9;
 /// Seconds the exit hint stays at full opacity.
 const HINT_FULL_SECS: f32 = 6.0;
 /// Seconds a scenario crossfade takes.
@@ -51,26 +38,6 @@ pub struct Screensaver {
     blend: f32,
     /// Small xorshift state: no dependency, deterministic per activation.
     rng: u32,
-    /// Decoded wallpaper (path + pixels) and the file being looked for.
-    wallpaper: Option<(PathBuf, Vec<u8>)>,
-    wallpaper_requested: Option<PathBuf>,
-    wallpaper_slot: WallpaperSlot,
-    /// Glass marbles drifting over the scene.
-    droplets: [Droplet; DROPLETS],
-}
-
-/// A glass marble floating over the frosted desktop. Positions are normalized
-/// so the scene scales with any output.
-#[derive(Clone, Copy, Debug)]
-struct Droplet {
-    x: f32,
-    y: f32,
-    vx: f32,
-    vy: f32,
-    /// Radius as a fraction of the output height.
-    radius: f32,
-    /// Phase of the slow dither, so they never move in lockstep.
-    phase: f32,
 }
 
 impl Default for Screensaver {
@@ -85,7 +52,7 @@ impl Screensaver {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0x9E37_79B9, |d| d.subsec_nanos() ^ d.as_secs() as u32);
-        let mut saver = Self {
+        Self {
             open: false,
             reveal: 0.0,
             elapsed: 0.0,
@@ -95,20 +62,7 @@ impl Screensaver {
             next_seed: 0.0,
             blend: 0.0,
             rng: nanos | 1,
-            wallpaper: None,
-            wallpaper_requested: None,
-            wallpaper_slot: Arc::new(Mutex::new(None)),
-            droplets: [Droplet {
-                x: 0.5,
-                y: 0.5,
-                vx: 0.0,
-                vy: 0.0,
-                radius: 0.02,
-                phase: 0.0,
-            }; DROPLETS],
-        };
-        saver.spawn_droplets();
-        saver
+        }
     }
 
     #[must_use]
@@ -133,25 +87,8 @@ impl Screensaver {
         (x & 0xFFFF) as f32 / 65535.0
     }
 
-    fn spawn_droplets(&mut self) {
-        for index in 0..DROPLETS {
-            let x = 0.12 + self.next_random() * 0.76;
-            let y = 0.14 + self.next_random() * 0.72;
-            let angle = self.next_random() * std::f32::consts::TAU;
-            let speed = 0.008 + self.next_random() * 0.022;
-            self.droplets[index] = Droplet {
-                x,
-                y,
-                vx: angle.cos() * speed,
-                vy: angle.sin() * speed,
-                radius: 0.012 + self.next_random() * 0.022,
-                phase: self.next_random() * std::f32::consts::TAU,
-            };
-        }
-    }
-
     /// Returns true when the state changed and the caller must act.
-    pub fn open(&mut self, settings: &ScreensaverConfig) -> bool {
+    pub fn open(&mut self, settings: &lard_core::theme::ScreensaverConfig) -> bool {
         if self.open {
             return false;
         }
@@ -167,7 +104,6 @@ impl Screensaver {
             settings.effect
         };
         self.next_mode = self.mode;
-        self.spawn_droplets();
         true
     }
 
@@ -196,9 +132,9 @@ impl Screensaver {
         self.blend = 0.001;
     }
 
-    /// Advance the burn-in, the crossfade and the droplets. Returns true while
-    /// a frame is needed, which keeps the scene animating at the frame rate.
-    pub fn update(&mut self, dt: f32, settings: &ScreensaverConfig) -> bool {
+    /// Advance the burn-in and the crossfade. Returns true while a frame is
+    /// needed, which keeps the scene animating at the frame rate.
+    pub fn update(&mut self, dt: f32, settings: &lard_core::theme::ScreensaverConfig) -> bool {
         if dt <= 0.0 {
             return self.wants_surface();
         }
@@ -208,7 +144,6 @@ impl Screensaver {
         if self.open {
             self.reveal = (self.reveal + step).min(1.0);
             self.elapsed += dt;
-            self.move_droplets(dt);
         } else {
             self.reveal = (self.reveal - step).max(0.0);
         }
@@ -226,129 +161,6 @@ impl Screensaver {
         self.wants_surface()
     }
 
-    /// Tiny physical simulation: slow orbital drift, soft collisions between
-    /// droplets and elastic bounces off the edges of the safe area.
-    fn move_droplets(&mut self, dt: f32) {
-        let margin = 0.05;
-        for index in 0..DROPLETS {
-            let (x1, y1, r1) = {
-                let d = &self.droplets[index];
-                (d.x, d.y, d.radius)
-            };
-            for other in (index + 1)..DROPLETS {
-                let (x2, y2, r2) = {
-                    let d = &self.droplets[other];
-                    (d.x, d.y, d.radius)
-                };
-                let dx = x2 - x1;
-                let dy = (y2 - y1) * 0.75;
-                let distance = (dx * dx + dy * dy).sqrt().max(1e-4);
-                let min = r1 + r2 + 0.03;
-                if distance < min {
-                    let push = (min - distance) / min * 0.9 * dt;
-                    let nx = dx / distance * push;
-                    let ny = dy / distance * push;
-                    self.droplets[index].vx -= nx;
-                    self.droplets[index].vy -= ny;
-                    self.droplets[other].vx += nx;
-                    self.droplets[other].vy += ny;
-                }
-            }
-        }
-
-        for droplet in &mut self.droplets {
-            let phase = droplet.phase + self.elapsed * 0.21;
-            // Gentle orbit around the centre, plus a slow dither.
-            let ax = -(droplet.y - 0.5) * 0.02 + phase.sin() * 0.004;
-            let ay = (droplet.x - 0.5) * 0.02 + phase.cos() * 0.004;
-            droplet.vx += ax * dt;
-            droplet.vy += ay * dt;
-            // Viscosity: glass marbles in a thick liquid, not billiard balls.
-            let damping = (1.0 - 0.35 * dt).max(0.0);
-            droplet.vx *= damping;
-            droplet.vy *= damping;
-            droplet.x += droplet.vx * dt;
-            droplet.y += droplet.vy * dt;
-
-            let r = droplet.radius;
-            if droplet.x < margin + r {
-                droplet.x = margin + r;
-                droplet.vx = droplet.vx.abs() * 0.85;
-            } else if droplet.x > 1.0 - margin - r {
-                droplet.x = 1.0 - margin - r;
-                droplet.vx = -droplet.vx.abs() * 0.85;
-            }
-            if droplet.y < margin + r {
-                droplet.y = margin + r;
-                droplet.vy = droplet.vy.abs() * 0.85;
-            } else if droplet.y > 1.0 - margin - r {
-                droplet.y = 1.0 - margin - r;
-                droplet.vy = -droplet.vy.abs() * 0.85;
-            }
-        }
-    }
-
-    /// Decode the wallpaper on a worker thread the first time it is needed:
-    /// the shell thread must never block on a 4K JPEG, and the frosted backdrop
-    /// only appears at the end of the burn-in anyway.
-    /// Start decoding the configured wallpaper in the background. Called once
-    /// at shell start-up so the first activation already has its room.
-    pub fn request_wallpaper(&mut self, config: &Config) {
-        let want = PathBuf::from(&config.theme.wallpaper);
-        if want.as_os_str().is_empty()
-            || self.wallpaper.as_ref().map(|(path, _)| path) == Some(&want)
-            || self.wallpaper_requested.as_ref() == Some(&want)
-        {
-            return;
-        }
-        self.wallpaper_requested = Some(want.clone());
-        if !want.exists() {
-            return;
-        }
-        let slot = Arc::clone(&self.wallpaper_slot);
-        std::thread::Builder::new()
-            .name("lard-saver-wallpaper".into())
-            .spawn(move || {
-                let rgba = image::open(&want)
-                    .ok()
-                    .map(|img| {
-                        img.resize_exact(
-                            WALLPAPER_W,
-                            WALLPAPER_H,
-                            image::imageops::FilterType::Triangle,
-                        )
-                        .to_rgba8()
-                        .into_raw()
-                    })
-                    .unwrap_or_default();
-                if let Ok(mut guard) = slot.lock() {
-                    *guard = Some((want, rgba));
-                }
-            })
-            .ok();
-    }
-
-    fn ensure_wallpaper(&mut self, scene: &mut Scene, config: &Config) {
-        if let Ok(mut slot) = self.wallpaper_slot.lock()
-            && let Some((path, rgba)) = slot.take()
-        {
-            if rgba.is_empty() {
-                self.wallpaper = None;
-            } else {
-                self.wallpaper = Some((path.clone(), rgba));
-            }
-            self.wallpaper_requested = Some(path);
-        }
-        // The scene is rebuilt every frame and the renderer deduplicates by id,
-        // so handing it the bitmap every time keeps the atlas correct without
-        // the shell having to know when a frame was actually presented.
-        if let Some((path, rgba)) = &self.wallpaper {
-            let _ = path;
-            scene.upload_image(WALLPAPER_ID, WALLPAPER_W, WALLPAPER_H, rgba.clone());
-        }
-        self.request_wallpaper(config);
-    }
-
     pub fn build(
         &mut self,
         scene: &mut Scene,
@@ -364,8 +176,6 @@ impl Screensaver {
         if reveal <= 0.001 {
             return;
         }
-        self.ensure_wallpaper(scene, config);
-
         scene.fluid(Fluid {
             mode: fluid_mode(self.mode),
             mode_b: fluid_mode(self.next_mode),
@@ -380,21 +190,14 @@ impl Screensaver {
             accent: theme.accent,
             // Pure white turns gold into grey fog: keep the highlight warm.
             light: theme.accent.mix(Color::WHITE, 0.55),
-            wallpaper: self.wallpaper.as_ref().map(|_| WALLPAPER_ID),
             veil: settings.veil,
             fade: 1.0,
         });
 
-        // Droplets belong to the subjects: they burn in with the bodies.
-        let subject = smoothstep(0.22, 0.62, reveal);
-        if subject > 0.01 {
-            self.draw_droplets(scene, size, theme, subject);
-        }
-
         if !settings.show_clock {
             return;
         }
-        // The interface arrives once the backdrop is closing in, rising a few
+        // The interface arrives once the room is closing in, rising a few
         // pixels into place; on the way out it leaves the same way.
         let ui = smoothstep(0.62, 0.92, reveal);
         if ui <= 0.001 {
@@ -460,48 +263,6 @@ impl Screensaver {
             theme.text_muted.scale_alpha(0.42 * hint_in * hint),
         );
     }
-
-    fn draw_droplets(&self, scene: &mut Scene, size: Size, theme: &lard_core::theme::Theme, p: f32) {
-        for droplet in &self.droplets {
-            let r = (droplet.radius * size.h).max(3.0);
-            let cx = droplet.x * size.w;
-            let cy = droplet.y * size.h;
-            let body = Rect::new(cx - r, cy - r, r * 2.0, r * 2.0);
-            // Contact shadow: the marble is floating *over* the frosted room.
-            scene.glow(
-                Rect::new(body.x + r * 0.22, body.y + r * 0.55, r * 2.2, r * 2.0),
-                Color::BLACK.with_alpha(0.30 * p),
-                0.0,
-            );
-            // Glass: a faint accent tint, a white rim and a specular highlight.
-            scene.rect(body, theme.accent.with_alpha(0.10 * p), r);
-            scene.rect(body, theme.text.with_alpha(0.05 * p), r);
-            scene.bordered(
-                body,
-                Color::TRANSPARENT,
-                r,
-                1.2,
-                theme.text.with_alpha(0.28 * p),
-            );
-            let spec = r * 0.62;
-            scene.glow(
-                Rect::new(
-                    cx - spec * 1.05,
-                    cy - spec * 1.25,
-                    spec * 1.15,
-                    spec * 1.05,
-                ),
-                Color::WHITE.with_alpha(0.62 * p),
-                0.0,
-            );
-            // Caustic light focused through the bottom of the marble.
-            scene.glow(
-                Rect::new(cx - spec * 0.45, cy + spec * 0.45, spec, spec * 0.7),
-                theme.accent.with_alpha(0.28 * p),
-                0.0,
-            );
-        }
-    }
 }
 
 fn fluid_mode(effect: ScreensaverEffect) -> FluidMode {
@@ -520,6 +281,7 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lard_core::theme::ScreensaverConfig;
 
     fn settings() -> ScreensaverConfig {
         ScreensaverConfig {
@@ -597,7 +359,6 @@ mod tests {
         saver.cycle(-1);
         let back = saver.next_mode;
         assert_ne!(back, start);
-        // One more step forward comes back around to the start.
         saver.cycle(1);
         assert_eq!(saver.next_mode, start);
     }
@@ -621,25 +382,6 @@ mod tests {
         assert_eq!(saver.blend, 0.0);
         assert_eq!(saver.mode, saver.next_mode);
         assert_ne!(saver.mode, before);
-    }
-
-    #[test]
-    fn droplets_stay_inside_the_safe_area() {
-        let settings = settings();
-        let mut saver = Screensaver::new();
-        saver.open(&settings);
-        // Shove one into a corner: the simulation must pull it back.
-        saver.droplets[0].x = 0.0;
-        saver.droplets[0].y = 1.0;
-        saver.droplets[0].vx = -1.0;
-        saver.droplets[0].vy = 1.0;
-        for _ in 0..600 {
-            saver.update(1.0 / 60.0, &settings);
-        }
-        for droplet in &saver.droplets {
-            assert!(droplet.x > 0.0 && droplet.x < 1.0, "{droplet:?}");
-            assert!(droplet.y > 0.0 && droplet.y < 1.0, "{droplet:?}");
-        }
     }
 
     #[test]

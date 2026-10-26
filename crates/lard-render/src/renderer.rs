@@ -64,10 +64,6 @@ struct FluidGpu {
     accent: [f32; 4],
     light: [f32; 4],
     params: [f32; 4],
-    /// Wallpaper cell in the image atlas: u0, v0, u1, v1.
-    bg_uv: [f32; 4],
-    /// has_wallpaper, blur radius, unused, unused
-    bg_info: [f32; 4],
 }
 
 /// Half-resolution render target of the screensaver fluid.
@@ -380,8 +376,7 @@ impl Renderer {
         let fluid_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("fluid-pipeline-layout"),
-                // group 0: uniforms, group 1: image atlas (the wallpaper).
-                bind_group_layouts: &[Some(&fluid_layout), Some(&atlas_layout)],
+                bind_group_layouts: &[Some(&fluid_layout)],
                 immediate_size: 0,
             });
         let fluid_resolve_layout =
@@ -775,9 +770,6 @@ impl Renderer {
     }
 
     fn write_fluid_uniform(&self, fluid: &Fluid, screen: (u32, u32)) {
-        let wallpaper = fluid
-            .wallpaper
-            .filter(|id| self.image_atlas.has(*id));
         let deep = fluid.deep.linear_straight();
         let accent = fluid.accent.linear_straight();
         let light = fluid.light.linear_straight();
@@ -805,15 +797,6 @@ impl Renderer {
                 fluid.intensity.clamp(0.0, 1.0),
                 fluid.fade.clamp(0.0, 1.0),
                 fluid.veil.clamp(0.0, 1.0),
-            ],
-            bg_uv: wallpaper
-                .map(|uv| self.image_atlas.uv(uv))
-                .unwrap_or([0.0, 0.0, 1.0, 1.0]),
-            bg_info: [
-                if wallpaper.is_some() { 1.0 } else { 0.0 },
-                0.0035,
-                0.0,
-                0.0,
             ],
         };
         self.queue
@@ -852,7 +835,6 @@ impl Renderer {
             });
             pass.set_pipeline(&pipelines.fluid);
             pass.set_bind_group(0, &self.fluid_bind_group, &[]);
-            pass.set_bind_group(1, &self.image_atlas.bind_group, &[]);
             pass.draw(0..3, 0..1);
             draw_calls += 1;
         }

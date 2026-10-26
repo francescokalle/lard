@@ -1,14 +1,14 @@
-// Full-screen backdrop and objects of the built-in screensaver.
+// Full-screen scene of the built-in screensaver.
 //
-// The screensaver is not a video: it is the desktop itself, frosted, with the
-// shell's liquid-glass objects floating over it. This shader draws the frosted
-// wallpaper (sampled from the image atlas and blurred in place) and the liquid
-// bodies of the current scenario. Small glass droplets are drawn by the shell
-// on top.
+// Everything is procedural: a volumetric "room" of drifting fog and caustics,
+// a soft liquid haze behind it, and the liquid-glass bodies of the current
+// scenario in front. There are no sprites, no floating bubbles and no video:
+// the whole environment is evaluated per pixel, so it keeps evolving without
+// ever repeating.
 //
-// The entrance is a burn-in: the bright structures of the objects appear first,
-// additively over the live session; the bodies follow; the frosted backdrop
-// closes the scene last. Leaving runs the same process backwards.
+// The entrance is a burn-in: the bright structures appear first, additively
+// over the live session; the bodies follow; the room closes in last. Leaving
+// runs the same process backwards.
 
 struct Fluid {
     screen: vec2<f32>,
@@ -23,15 +23,9 @@ struct Fluid {
     light: vec4<f32>,
     // speed, intensity, fade, veil
     params: vec4<f32>,
-    // Wallpaper cell in the image atlas: u0, v0, u1, v1.
-    bg_uv: vec4<f32>,
-    // has_wallpaper, blur radius, unused, unused
-    bg_info: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> f: Fluid;
-@group(1) @binding(0) var atlas: texture_2d<f32>;
-@group(1) @binding(1) var atlas_sampler: sampler;
 
 struct VsOut {
     @builtin(position) position: vec4<f32>,
@@ -59,36 +53,37 @@ fn hash21(p: vec2<f32>) -> f32 {
     return fract((p3.x + p3.y) * p3.z);
 }
 
+fn vnoise(p: vec2<f32>) -> f32 {
+    let cell = floor(p);
+    let fr = fract(p);
+    let u = fr * fr * (3.0 - 2.0 * fr);
+    let a = hash21(cell);
+    let b = hash21(cell + vec2<f32>(1.0, 0.0));
+    let c = hash21(cell + vec2<f32>(0.0, 1.0));
+    let d = hash21(cell + vec2<f32>(1.0, 1.0));
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+fn fbm(start: vec2<f32>) -> f32 {
+    var p = start;
+    var value = 0.0;
+    var amp = 0.5;
+    for (var i = 0; i < 3; i = i + 1) {
+        value += amp * vnoise(p);
+        p = mat2x2<f32>(0.80, -0.60, 0.60, 0.80) * p * 2.07 + vec2<f32>(1.7, 9.2);
+        amp *= 0.5;
+    }
+    return value;
+}
+
 fn hue_rotate(color: vec3<f32>, angle: f32) -> vec3<f32> {
     let k = vec3<f32>(0.57735, 0.57735, 0.57735);
     let c = cos(angle);
     return color * c + cross(k, color) * sin(angle) + k * dot(k, color) * (1.0 - c);
 }
 
-/// Sample the wallpaper cell with a small ring blur. The cell is low
-/// resolution already, so nine taps are enough for a convincing frost.
-fn wallpaper(uv: vec2<f32>, blur: f32) -> vec3<f32> {
-    let a = f.bg_uv.xy;
-    let b = f.bg_uv.zw;
-    let sample_uv = a + uv * (b - a);
-    var acc = textureSample(atlas, atlas_sampler, sample_uv).rgb;
-    if (blur > 0.00001) {
-        for (var i = 0; i < 8; i = i + 1) {
-            let angle = f32(i) * 0.785398;
-            let offset = vec2<f32>(cos(angle), sin(angle)) * blur;
-            acc += textureSample(
-                atlas,
-                atlas_sampler,
-                clamp(sample_uv + offset * vec2<f32>(b.x - a.x, b.y - a.y) * 6.0, a, b),
-            ).rgb;
-        }
-        acc /= 9.0;
-    }
-    return acc;
-}
-
 /// Centre of the i-th control point of the liquid chain. The seed rearranges
-/// the whole composition: same room, different arrangement.
+/// the whole composition: same liquid, different shot.
 fn node(i: f32, t: f32, seed: f32) -> vec2<f32> {
     let phase = i * 0.8976 + t * 0.155 + seed * 6.2831 + sin(seed * 13.7 + i) * 0.9;
     let r = 0.36 + 0.13 * sin(t * 0.19 + i * 1.7 + seed * 4.1);
@@ -100,8 +95,8 @@ fn node(i: f32, t: f32, seed: f32) -> vec2<f32> {
 
 /// Metaball height field of a chain of capsules: the merged surface is
 /// `field == 1`. Capsules instead of lone blobs are what make the result read
-/// as a flowing liquid rather than a handful of floating bubbles, and the
-/// potential is smooth everywhere, so the normals give rounded volumes.
+/// as a flowing liquid, and the potential is smooth everywhere, so the normals
+/// give rounded volumes.
 fn field(p: vec2<f32>, t: f32, seed: f32) -> f32 {
     var sum = 0.0;
     var a = node(0.0, t, seed);
@@ -115,21 +110,19 @@ fn field(p: vec2<f32>, t: f32, seed: f32) -> f32 {
         sum += (radius * radius) / (dot(off, off) + 0.0011);
         a = b;
     }
-    // Two fatter droplets drift through the chain and merge with it.
-    for (var k = 0; k < 2; k = k + 1) {
-        let fk = f32(k);
-        let phase = fk * 3.1 + t * 0.24 + seed * 5.9 + fk * seed;
-        let c = vec2<f32>(cos(phase) * 0.95, sin(phase * 0.83 + 1.7 + seed) * 0.34);
-        let radius = 0.085 + 0.015 * sin(t * 0.27 + fk + seed * 3.0);
-        sum += (radius * radius) / (dot(p - c, p - c) + 0.0011);
-    }
     return sum;
 }
 
-/// One scenario: returns premultiplied colour and alpha of the liquid bodies.
-fn shot(p: vec2<f32>, t: f32, mode: u32, seed: f32, intensity: f32) -> vec4<f32> {
-    if (mode == 0u || mode == 1u) {
-        // Liquid / Mercury: molten volumes shaded from a metaball field.
+/// Shaded body: premultiplied colour, coverage and the brightness used to
+/// order the burn-in.
+struct Body {
+    color: vec3<f32>,
+    alpha: f32,
+    light: f32,
+};
+
+/// A single liquid body: premultiplied colour and alpha of the chain.
+fn liquid_layer(p: vec2<f32>, t: f32, mode: u32, seed: f32, intensity: f32) -> Body {
         let height = field(p, t, seed);
         let inside = smoothstep(0.985, 1.015, height);
         let eps = 0.02;
@@ -146,25 +139,45 @@ fn shot(p: vec2<f32>, t: f32, mode: u32, seed: f32, intensity: f32) -> vec4<f32>
         var color = vec3<f32>(0.0);
         if (mode == 0u) {
             // Liquid: gold-filled glass. The alpha stays below one on purpose:
-            // the frosted desktop must read through the volumes.
-            color = f.accent.rgb * (0.16 + 0.34 * facing + 0.30 * fresnel);
+            // the room must read through the volumes.
+            color = f.accent.rgb * (0.10 + 0.30 * facing + 0.52 * fresnel * fresnel);
             color += f.accent.rgb * fresnel * fresnel * 0.55 * (0.4 + 0.6 * intensity);
             color += f.light.rgb * specular * (0.22 + 0.38 * intensity);
         } else {
             // Mercury: the surface mirrors a bright room. A horizon line
             // across every volume is what sells polished chrome.
             let horizon = smoothstep(-0.65, 0.45, normal.y * 2.0 + 0.16);
-            color = mix(f.deep.rgb * 2.0, f.light.rgb, horizon * (0.30 + 0.55 * facing));
+            color = mix(vec3<f32>(0.012, 0.015, 0.020), f.light.rgb, horizon * (0.26 + 0.46 * facing));
             color += f.accent.rgb * fresnel * 0.45;
             color += f.light.rgb * specular * (0.60 + 0.80 * intensity) * 1.6;
         }
         let halo = exp(-abs(height - 1.0) * 26.0) * (1.0 - inside);
-        let alpha = clamp(inside * 0.86 + halo * 0.30, 0.0, 1.0);
+        let alpha = clamp(inside * 0.72 + halo * 0.26, 0.0, 1.0);
         let premul = color * inside + f.accent.rgb * halo * (0.10 + 0.30 * intensity);
-        return vec4<f32>(premul, alpha);
+        let light = max(max(color.r, color.g), color.b);
+        return Body(premul, alpha, light);
+}
+
+/// One scenario: two liquid masses at different depths, or the aurora.
+fn shot(p: vec2<f32>, t: f32, mode: u32, seed: f32, intensity: f32) -> Body {
+    if (mode == 0u || mode == 1u) {
+        // Near mass, plus a larger, slower one behind it: the room reads as
+        // full of liquid instead of a single blob on a table.
+        let front = liquid_layer(p, t, mode, seed, intensity);
+        let back = liquid_layer(
+            p * 0.84 + vec2<f32>(0.16, -0.12),
+            t * 0.85,
+            mode,
+            seed + 0.41,
+            intensity * 0.65,
+        );
+        let alpha = front.alpha + back.alpha * (1.0 - front.alpha);
+        let rgb = front.color + back.color * 0.40 * (1.0 - front.alpha);
+        let light = max(front.light, back.light * 0.50);
+        return Body(rgb, alpha, light);
     }
 
-    // Aurora: three drifting curtains of light above the room.
+    // Aurora: three drifting curtains of light.
     var color = vec3<f32>(0.0);
     var alpha = 0.0;
     for (var k = 0; k < 3; k = k + 1) {
@@ -185,7 +198,8 @@ fn shot(p: vec2<f32>, t: f32, mode: u32, seed: f32, intensity: f32) -> vec4<f32>
     let rays = 0.5 + 0.5 * sin(p.x * 26.0 + 3.0 * sin(p.y * 3.0 + t * 0.4) + t * 0.9);
     color *= 0.82 + 0.30 * rays;
     alpha = clamp(alpha, 0.0, 1.0);
-    return vec4<f32>(color, alpha);
+    let light = max(max(color.r, color.g), color.b);
+    return Body(color, alpha, light);
 }
 
 @fragment
@@ -195,7 +209,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let t = f.time * max(f.params.x, 0.05);
     let intensity = clamp(f.params.y, 0.0, 1.0);
     let fade = clamp(f.params.z, 0.0, 1.0);
-    let veil = clamp(f.params.w, 0.0, 1.0);
+    let veil = clamp(f.params.w, 0.0, 0.95);
     let seed_a = f.variants.x;
     let seed_b = f.variants.y;
     let blend = clamp(f.variants.z, 0.0, 1.0);
@@ -203,45 +217,58 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let uv = in.uv;
     let p = (uv - vec2<f32>(0.5, 0.5)) * vec2<f32>(aspect, 1.0);
 
+    // ---- room: volumetric fog and caustics, all procedural -----------------
+    let warp = vec2<f32>(
+        fbm(p * 0.85 + vec2<f32>(0.0, t * 0.021)),
+        fbm(p * 0.85 + vec2<f32>(3.7, 1.1) - vec2<f32>(t * 0.018, 0.0)),
+    ) - vec2<f32>(0.47, 0.47);
+    let fog = fbm(p * 1.15 + warp * 1.7 + vec2<f32>(t * 0.013, -t * 0.011));
+    // Cold graphite, lit by the palette accent: a dark room, not a flat black.
+    var room = mix(
+        vec3<f32>(0.008, 0.011, 0.016),
+        vec3<f32>(0.028, 0.040, 0.055) + f.accent.rgb * 0.03,
+        smoothstep(0.28, 0.80, fog),
+    );
+    // Caustics: thin sheets of light where the fog folds.
+    let caustic = pow(smoothstep(0.62, 0.95, fog), 5.0);
+    room += f.accent.rgb * caustic * (0.14 + 0.18 * intensity);
+    // A slow, out-of-focus liquid shadow behind everything gives depth.
+    let haze = smoothstep(0.30, 1.35, field(p * 0.55 + vec2<f32>(0.0, t * 0.01), t * 0.6, seed_a + 0.77));
+    room += f.accent.rgb * haze * (0.035 + 0.035 * intensity);
+    room *= 1.0 - veil;
+    // Vignette and a darker foot so the clock stays readable.
+    let vig = smoothstep(1.45, 0.10, length(p * vec2<f32>(0.82, 1.0)));
+    room *= mix(1.0, 0.55, 1.0 - vig) * mix(1.0, 0.66, smoothstep(0.55, 1.0, uv.y) * 0.9);
+
     // ---- objects of the current scenario (crossfaded between two shots) ----
     var body = shot(p, t, f.modes.x, seed_a, intensity);
     if (blend > 0.001) {
         let other = shot(p, t, f.modes.y, seed_b, intensity);
-        body = mix(body, other, smoothstep(0.0, 1.0, blend));
+        let k = smoothstep(0.0, 1.0, blend);
+        body.color = mix(body.color, other.color, k);
+        body.alpha = mix(body.alpha, other.alpha, k);
+        body.light = mix(body.light, other.light, k);
     }
 
     // Burn-in of the objects: bright structures first, additively, then the
     // bodies. `appear` works on the unpremultiplied brightness of each pixel.
-    let body_luma = dot(body.rgb / max(body.a, 0.001), vec3<f32>(0.2126, 0.7152, 0.0722));
+    let body_luma = body.light;
     let start = 0.86 - progress * 1.10;
     let appear = smoothstep(start, start + 0.18, body_luma) * smoothstep(0.0, 0.02, progress);
     let body_fill = smoothstep(0.06, 0.45, progress);
     let glow = 1.0 + (1.0 - body_fill) * 1.65;
-    let body_alpha = body.a * appear * body_fill;
-    var body_rgb = body.rgb * appear * glow;
-
+    let body_alpha = body.alpha * appear * body_fill;
+    var body_rgb = body.color * appear * glow;
     // Light from the bodies is composited additively over the room: that is
     // what makes them look like they are burning into the screen.
-    body_rgb += body.rgb * appear * (1.0 - body_fill) * 0.9 * max(0.0, 1.0 - body_alpha);
+    body_rgb += body.color * appear * (1.0 - body_fill) * 0.9 * max(0.0, 1.0 - body_alpha);
 
-    // ---- the room: frosted wallpaper, closing in last ----
-    var room = f.deep.rgb;
-    if (f.bg_info.x > 0.5) {
-        let blur = mix(0.00002, f.bg_info.y, smoothstep(0.35, 1.0, progress));
-        room = wallpaper(uv, blur);
-    }
-    room = mix(room, f.deep.rgb, veil);
-    // A soft vignette and a darker foot so the clock stays readable.
-    let vig = smoothstep(1.45, 0.10, length(p * vec2<f32>(0.82, 1.0)));
-    room *= mix(1.0, 0.55, 1.0 - vig) * mix(1.0, 0.62, smoothstep(0.55, 1.0, uv.y) * 0.9);
-
+    // The room closes in last, under the objects.
     let room_alpha = smoothstep(0.50, 1.0, progress);
     let grain = hash21(floor(uv * res) + vec2<f32>(t * 7.0, t * 11.0)) - 0.5;
     body_rgb += grain * 0.0025;
 
-    // Premultiplied composite: the room is behind, the objects float on top of
-    // it. During the burn-in the room is still transparent, so the objects
-    // burn in over the live session; at the end the room closes in under them.
+
     let out_alpha = body_alpha + room_alpha * (1.0 - body_alpha);
     let out_rgb = body_rgb + room * room_alpha * (1.0 - body_alpha);
     return vec4<f32>(max(out_rgb, vec3<f32>(0.0)) * fade, clamp(out_alpha, 0.0, 1.0) * fade);
