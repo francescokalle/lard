@@ -132,6 +132,24 @@ top         = "#141008"
 bottom      = "#2A2113"
 accent_glow = "#8C6A2A"
 
+[screensaver]
+# Effetto fluido a schermo intero quando la sessione è inattiva.
+enabled = true
+# Minuti di inattività prima dell'ingresso (1-120).
+idle_minutes = 5
+# liquid | mercury | aurora
+effect = "liquid"
+# Scenario e composizione diversi a ogni ingresso (le frecce li cambiano al volo).
+random = true
+# Durata del burn-in in ingresso/uscita (300-2500 ms).
+entrance_ms = 1300
+# Velocità del flusso (0.1-3.0) e intensità di riflessi/alone (0-1).
+speed = 1.0
+intensity = 0.65
+# Quanto viene scurito il desktop sfuocato dietro le forme (0-0.95).
+veil = 0.35
+show_clock = true
+
 [animation]
 # stiffness: forza di richiamo; damping: attrito; mass: inerzia.
 # I valori sono in unità arbitrarie ma coerenti: 520/38 è "snappy".

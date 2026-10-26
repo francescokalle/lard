@@ -185,7 +185,7 @@ la configurazione al volo).
 | **Scala frazionaria** | Scala intera (`wl_output.scale`). 1.25/1.5x viene scalato dal compositor. |
 | **Icone applicazioni / emoji** | Le icone delle app sono quelle reali del tema icone: PNG/JPEG/WebP via `image`, SVG rasterizzate con `resvg` (risolte in `hicolor`, nei theme Adwaita e negli export Flatpak). Non sono supportati XPM/ICO e le emoji a colori vengono rese come maschere monocromatiche nell'atlas R8 (nomi Wi‑Fi e titoli restano leggibili). |
 | **Hot reload config** | ✅: watcher inotify su `config.toml` (e `lard ipc reload` manuale). Ricarica tema/layout/font e ricrea le superfici; i parametri dei singoli spring restano quelli dell'avvio. |
-| **Idle/lock automatico** | Usa `swayidle`/niri + `lard lock`; non c'è un demone idle interno. |
+| **Salvaschermo** | Integrato nella shell e costruito sull'ambiente: il desktop viene congelato in vetro sfuocato e le forme liquide della shell (Liquido, Mercurio, Aurora) più le gocce di vetro ci galleggiano sopra, come una piccola simulazione fisica. Ingresso/uscita sono un burn-in (prima le luci, poi i corpi, poi lo sfondo) e le frecce ← → cambiano scenario al volo, senza slideshow automatici. Tutto regolabile dalle impostazioni (inattività, ingresso, casualità, vetro, velocità, intensità, orologio). L'idle arriva da `ext-idle-notify-v1` (nessun `swayidle`), la surface è un layer overlay per output e qualsiasi altro tasto o movimento la chiude. Non blocca la sessione: per quello c'è `lard lock`. |
 
 ---
 

@@ -432,3 +432,82 @@ pub struct AnimationConfig {
     /// near-instant.
     pub reduce_motion: bool,
 }
+
+/// Visual effect behind the built-in screensaver.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ScreensaverEffect {
+    /// Warm liquid blobs with glossy highlights.
+    #[default]
+    Liquid,
+    /// Chrome-like liquid metal.
+    Mercury,
+    /// Iridescent fluid ribbons.
+    Aurora,
+}
+
+impl ScreensaverEffect {
+    pub const ALL: [Self; 3] = [Self::Liquid, Self::Mercury, Self::Aurora];
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Liquid => "Liquido",
+            Self::Mercury => "Mercurio",
+            Self::Aurora => "Aurora",
+        }
+    }
+}
+
+/// Built-in screensaver: a full-screen fluid that appears when the session has
+/// been idle for a while. It is not a lock screen, so any input dismisses it.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ScreensaverConfig {
+    pub enabled: bool,
+    /// Minutes of inactivity before the screensaver appears.
+    pub idle_minutes: u32,
+    pub effect: ScreensaverEffect,
+    /// Pick a random scenario and composition on every activation.
+    pub random: bool,
+    /// Length of the liquid flood that brings the overlay on screen.
+    pub entrance_ms: u32,
+    /// Flow speed multiplier.
+    pub speed: f32,
+    /// Glow / contrast of the effect, 0..1.
+    pub intensity: f32,
+    /// How strongly the frosted backdrop is darkened, 0..1.
+    pub veil: f32,
+    /// Show the clock and the date in the corner.
+    pub show_clock: bool,
+}
+
+impl Default for ScreensaverConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            idle_minutes: 5,
+            effect: ScreensaverEffect::Liquid,
+            random: true,
+            entrance_ms: 1300,
+            speed: 1.0,
+            intensity: 0.65,
+            veil: 0.35,
+            show_clock: true,
+        }
+    }
+}
+
+impl ScreensaverConfig {
+    /// Idle timeout in whole seconds, as the idle-notify protocol wants it.
+    #[must_use]
+    pub fn idle_secs(&self) -> u32 {
+        self.idle_minutes.saturating_mul(60).max(1)
+    }
+
+    /// Entrance (and exit) duration in seconds.
+    #[must_use]
+    pub fn entrance_secs(&self) -> f32 {
+        self.entrance_ms as f32 / 1000.0
+    }
+}

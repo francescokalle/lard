@@ -183,6 +183,50 @@ pub struct ImageUpload {
     pub rgba: Vec<u8>,
 }
 
+/// Which fluid look the screensaver draws.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FluidMode {
+    #[default]
+    Liquid,
+    Mercury,
+    Aurora,
+}
+
+/// Full-screen animated background.
+///
+/// The renderer draws it at half resolution behind every other command, which
+/// keeps one frame affordable on integrated GPUs while giving the effect the
+/// soft, cohesive look of a liquid.
+#[derive(Clone, Copy, Debug)]
+pub struct Fluid {
+    pub mode: FluidMode,
+    /// Second variant, crossfaded with `mode` by `mix`. Equal modes make the
+    /// two shots differ only by `seed_b`, which is enough to rearrange the
+    /// composition.
+    pub mode_b: FluidMode,
+    /// Seconds since the effect started; the shell advances it per frame.
+    pub time: f32,
+    pub speed: f32,
+    pub intensity: f32,
+    /// Random offset of the liquid layout (orbit phases and sizes).
+    pub seed_a: f32,
+    pub seed_b: f32,
+    /// 0..1 crossfade between the two shots.
+    pub mix: f32,
+    /// 0..1 entrance/exit level: the liquid floods the screen from below as
+    /// this grows and drains back down as it shrinks.
+    pub reveal: f32,
+    pub deep: Color,
+    pub accent: Color,
+    pub light: Color,
+    /// Image id of the wallpaper to frost behind the objects, if any.
+    pub wallpaper: Option<u32>,
+    /// How much of `deep` is layered over the frosted wallpaper.
+    pub veil: f32,
+    /// 0..1 opacity of the whole effect.
+    pub fade: f32,
+}
+
 /// A frame's draw commands. Reusing one `Scene` between frames keeps all
 /// vectors allocated.
 #[derive(Debug, Default)]
@@ -191,6 +235,8 @@ pub struct Scene {
     pub texts: Vec<TextCmd>,
     pub images: Vec<ImageCmd>,
     pub image_uploads: Vec<ImageUpload>,
+    /// Animated fluid drawn behind everything else (screensaver).
+    pub fluid: Option<Fluid>,
     /// Text is copied into one reusable arena instead of borrowing from UI
     /// state. This keeps `Scene` lifetime-free and makes steady-state frames
     /// allocation-free.
@@ -208,6 +254,7 @@ impl Scene {
         self.texts.clear();
         self.images.clear();
         self.image_uploads.clear();
+        self.fluid = None;
         self.arena.clear();
     }
 
@@ -247,7 +294,14 @@ impl Scene {
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.rects.is_empty() && self.texts.is_empty()
+        self.rects.is_empty() && self.texts.is_empty() && self.fluid.is_none()
+    }
+
+    /// Draw a full-screen animated fluid behind the rest of the scene. Only
+    /// the screensaver uses it: the effect is expensive and hides the
+    /// compositor backdrop.
+    pub fn fluid(&mut self, fluid: Fluid) {
+        self.fluid = Some(fluid);
     }
 
     pub fn rect(&mut self, rect: Rect, color: Color, radius: f32) {

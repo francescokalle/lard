@@ -18,6 +18,8 @@ pub enum SettingsTab {
     Bar,
     Dock,
     Effects,
+    /// Screensaver effect and idle timeout.
+    Screen,
     /// Edit the niri configuration files.
     Niri,
     Info,
@@ -40,6 +42,10 @@ pub enum Toggle {
     ReduceMotion,
     /// Chain: every radius follows the card/tile value.
     RadiusLink,
+    Screensaver,
+    ScreensaverClock,
+    /// Random composition (and effect) on every activation.
+    ScreensaverRandom,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,6 +60,11 @@ pub enum Step {
     RadiusSm,
     OverlayOpacity,
     Frost,
+    ScreensaverIdle,
+    ScreensaverSpeed,
+    ScreensaverIntensity,
+    ScreensaverVeil,
+    ScreensaverEntrance,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,6 +87,8 @@ pub enum SettingsAction {
     NiriOutputModeNext,
     /// Pick the next output scale.
     NiriOutputScaleNext,
+    /// Choose the screensaver effect by index into `ScreensaverEffect::ALL`.
+    ScreensaverEffect(usize),
     /// Save the edited niri configuration file and reload it.
     SaveNiri,
 }
@@ -413,6 +426,7 @@ impl SettingsView {
             (SettingsTab::Bar, icons::DASHBOARD, "Barra"),
             (SettingsTab::Dock, icons::DOCK, "Dock"),
             (SettingsTab::Effects, icons::BLUR, "Effetti"),
+            (SettingsTab::Screen, icons::SCREEN, "Schermo"),
             (SettingsTab::Niri, icons::CODE, "Niri"),
             (SettingsTab::Info, icons::INFO, "Info"),
         ];
@@ -556,6 +570,7 @@ impl SettingsView {
             SettingsTab::Bar => "Barra",
             SettingsTab::Dock => "Dock",
             SettingsTab::Effects => "Effetti",
+            SettingsTab::Screen => "Schermo",
             SettingsTab::Niri => "Config di niri",
             SettingsTab::Info => "Informazioni",
         };
@@ -575,6 +590,7 @@ impl SettingsView {
             SettingsTab::Bar => self.build_bar(scene, content, y, config, p),
             SettingsTab::Dock => self.build_dock(scene, content, y, config, p),
             SettingsTab::Effects => self.build_effects(scene, content, y, config, p),
+            SettingsTab::Screen => self.build_screen(scene, content, y, config, p),
             SettingsTab::Niri => self.build_niri(scene, content, y, config, p),
             SettingsTab::Info => self.build_info(scene, content, y, config, p),
         }
@@ -1499,6 +1515,194 @@ impl SettingsView {
                 ..Default::default()
             },
             config.theme.text_muted.scale_alpha(0.5 * p),
+        );
+    }
+
+    /// Built-in screensaver: effect, idle time and overlay options.
+    fn build_screen(&mut self, scene: &mut Scene, content: Rect, y: f32, config: &Config, p: f32) {
+        let theme = &config.theme;
+        let fonts = &config.font;
+        let saver = &config.screensaver;
+        let dimmed = !saver.enabled;
+
+        self.toggle_row(
+            scene,
+            Rect::new(content.x, y, content.w, 46.0),
+            "Salvaschermo",
+            "Effetto fluido a schermo intero quando la sessione è inattiva",
+            saver.enabled,
+            SettingsAction::Toggle(Toggle::Screensaver),
+            config,
+            p,
+        );
+        self.stepper_row_state(
+            scene,
+            Rect::new(content.x, y + 48.0, content.w, 46.0),
+            "Dopo",
+            &format!("{} min", saver.idle_minutes),
+            SettingsAction::Step(Step::ScreensaverIdle, -1),
+            SettingsAction::Step(Step::ScreensaverIdle, 1),
+            config,
+            p,
+            dimmed,
+        );
+
+        // Effect picker: three chips, the selected one carries the accent.
+        let rect = Rect::new(content.x, y + 98.0, content.w, 46.0);
+        scene.text(
+            "Scenario",
+            Point::new(rect.x + 8.0, rect.y + 4.0),
+            TextStyle {
+                size: fonts.size_body,
+                weight: fonts.weight_medium,
+                ..Default::default()
+            },
+            theme.text.scale_alpha(p),
+        );
+        scene.text(
+            if dimmed {
+                "Quale scenario quando \"Casuale\" è spento"
+            } else {
+                "Frecce ← → per cambiarli al volo"
+            },
+            Point::new(rect.x + 8.0, rect.y + 24.0),
+            TextStyle {
+                size: fonts.size_small - 1.0,
+                ..Default::default()
+            },
+            theme.text_muted.scale_alpha(0.58 * p),
+        );
+        let chip_h = 30.0;
+        let gap = 8.0;
+        let chip_w = ((rect.w * 0.34 - gap * 2.0) / 3.0).clamp(78.0, 150.0);
+        let total = chip_w * 3.0 + gap * 2.0;
+        for (index, effect) in lard_core::theme::ScreensaverEffect::ALL.iter().enumerate() {
+            let chip = Rect::new(
+                rect.right() - total + index as f32 * (chip_w + gap),
+                rect.y + 8.0,
+                chip_w,
+                chip_h,
+            );
+            let selected = !saver.random && saver.effect == *effect;
+            let hovered = self.cursor.is_some_and(|c| chip.contains(c));
+            let alpha = if selected {
+                0.9
+            } else if hovered {
+                0.30
+            } else {
+                0.14
+            };
+            scene.rect(
+                chip,
+                if selected {
+                    theme.accent.scale_alpha(alpha * p)
+                } else {
+                    theme.surface_hover.scale_alpha(alpha * p)
+                },
+                chip_h * 0.5,
+            );
+            scene.text_center_y(
+                effect.label(),
+                chip.x,
+                chip.center().y,
+                TextStyle {
+                    size: fonts.size_small,
+                    weight: if selected {
+                        fonts.weight_medium
+                    } else {
+                        fonts.weight_regular
+                    },
+                    align: TextAlign::Center,
+                    max_width: Some(chip.w),
+                    ..Default::default()
+                },
+                if selected {
+                    theme.accent_text.scale_alpha(0.92 * p)
+                } else if dimmed || saver.random {
+                    theme.text_muted.scale_alpha(0.4 * p)
+                } else {
+                    theme.text.scale_alpha(0.85 * p)
+                },
+            );
+            self.hits
+                .push((chip, SettingsAction::ScreensaverEffect(index)));
+        }
+
+        self.toggle_row(
+            scene,
+            Rect::new(content.x, y + 146.0, content.w, 46.0),
+            "Casuale",
+            "Scenario e composizione diversi a ogni ingresso",
+            saver.random,
+            SettingsAction::Toggle(Toggle::ScreensaverRandom),
+            config,
+            p,
+        );
+        self.stepper_row_state(
+            scene,
+            Rect::new(content.x, y + 194.0, content.w, 46.0),
+            "Vetro",
+            &format!(
+                "{}%",
+                (saver.veil * 100.0).round() as u32
+            ),
+            SettingsAction::Step(Step::ScreensaverVeil, -5),
+            SettingsAction::Step(Step::ScreensaverVeil, 5),
+            config,
+            p,
+            dimmed,
+        );
+        self.stepper_row_state(
+            scene,
+            Rect::new(content.x, y + 242.0, content.w, 46.0),
+            "Ingresso",
+            &format!("{:.1} s", saver.entrance_secs()),
+            SettingsAction::Step(Step::ScreensaverEntrance, -100),
+            SettingsAction::Step(Step::ScreensaverEntrance, 100),
+            config,
+            p,
+            dimmed,
+        );
+        self.stepper_row_state(
+            scene,
+            Rect::new(content.x, y + 290.0, content.w, 46.0),
+            "Velocità",
+            &format!("{:.1}×", saver.speed),
+            SettingsAction::Step(Step::ScreensaverSpeed, -1),
+            SettingsAction::Step(Step::ScreensaverSpeed, 1),
+            config,
+            p,
+            dimmed,
+        );
+        self.stepper_row_state(
+            scene,
+            Rect::new(content.x, y + 338.0, content.w, 46.0),
+            "Intensità",
+            &format!("{}%", (saver.intensity * 100.0).round() as u32),
+            SettingsAction::Step(Step::ScreensaverIntensity, -5),
+            SettingsAction::Step(Step::ScreensaverIntensity, 5),
+            config,
+            p,
+            dimmed,
+        );
+        self.toggle_row(
+            scene,
+            Rect::new(content.x, y + 386.0, content.w, 46.0),
+            "Orologio",
+            "Ora e data nell'angolo del salvaschermo",
+            saver.show_clock,
+            SettingsAction::Toggle(Toggle::ScreensaverClock),
+            config,
+            p,
+        );
+        scene.text(
+            "Il desktop si congela in vetro e le forme bruciano dentro. Frecce per gli scenari.",
+            Point::new(content.x, y + 444.0),
+            TextStyle {
+                size: fonts.size_small - 1.0,
+                ..Default::default()
+            },
+            theme.text_muted.scale_alpha(0.5 * p),
         );
     }
 

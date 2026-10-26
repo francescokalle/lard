@@ -230,7 +230,9 @@ fn main() -> anyhow::Result<()> {
         ("settings-bar", 182.0),
         ("settings-dock", 224.0),
         ("settings-effects", 266.0),
-        ("settings-info", 308.0),
+        ("settings-screen", 308.0),
+        ("settings-niri", 350.0),
+        ("settings-info", 392.0),
     ] {
         shell.settings_press(Point::new(300.0, y));
         for _ in 0..4 {
@@ -385,6 +387,89 @@ fn main() -> anyhow::Result<()> {
         &config.font,
     );
     save(&gpu, &mut renderer, "greeter", W, H, &scene)?;
+
+    // ---- built-in screensaver, one frame per scenario ----
+    // A synthetic wallpaper gives the previews the frosted room the real
+    // shell samples from the user's image, without shipping a photo.
+    let wallpaper_path = std::path::PathBuf::from("preview/saver-wallpaper.png");
+    if !wallpaper_path.exists() {
+        let mut image = image::RgbaImage::new(256, 144);
+        for (x, y, pixel) in image.enumerate_pixels_mut() {
+            let u = x as f32 / 255.0;
+            let v = y as f32 / 143.0;
+            // Deep water: navy at the top, teal at the bottom, one warm glow.
+            let glow = (-((u - 0.72).powi(2) * 9.0 + (v - 0.28).powi(2) * 16.0)).exp();
+            *pixel = image::Rgba([
+                (8.0 + 26.0 * v + 60.0 * glow) as u8,
+                (16.0 + 62.0 * v + 40.0 * glow) as u8,
+                (30.0 + 70.0 * v + 10.0 * glow) as u8,
+                255,
+            ]);
+        }
+        image.save(&wallpaper_path)?;
+    }
+    for (effect, name) in [
+        (lard_core::theme::ScreensaverEffect::Liquid, "screensaver-liquid"),
+        (lard_core::theme::ScreensaverEffect::Mercury, "screensaver-mercury"),
+        (lard_core::theme::ScreensaverEffect::Aurora, "screensaver-aurora"),
+    ] {
+        let mut preview_config = config.clone();
+        preview_config.screensaver.effect = effect;
+        preview_config.screensaver.idle_minutes = 5;
+        // Deterministic previews: no random composition.
+        preview_config.screensaver.random = false;
+        preview_config.screensaver.entrance_ms = 600;
+        preview_config.theme.wallpaper = wallpaper_path.display().to_string();
+        let mut shell = Shell::new(preview_config.clone());
+        shell.clock = "21:47".into();
+        shell.date = "lun 26 ott".into();
+        shell.date_long = "lunedì 26 ottobre".into();
+        shell.open_screensaver();
+        // First build kicks off the wallpaper decode; wait for the worker.
+        {
+            let mut scene = Scene::new();
+            shell.build_screensaver(&mut scene, Size::new(1280.0, 800.0));
+        }
+        for _ in 0..30 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            let mut scene = Scene::new();
+            shell.build_screensaver(&mut scene, Size::new(1280.0, 800.0));
+        }
+        for _ in 0..120 {
+            shell.update(1.0 / 60.0);
+        }
+        let mut scene = Scene::new();
+        shell.build_screensaver(&mut scene, Size::new(1280.0, 800.0));
+        save(&gpu, &mut renderer, name, 1280, 800, &scene)?;
+    }
+
+    // ---- screensaver burn-in, sampled while it takes over the desktop ----
+    {
+        let mut preview_config = config.clone();
+        preview_config.screensaver.random = false;
+        preview_config.screensaver.entrance_ms = 1200;
+        preview_config.theme.wallpaper = wallpaper_path.display().to_string();
+        let mut shell = Shell::new(preview_config);
+        shell.clock = "21:47".into();
+        shell.date_long = "lunedì 26 ottobre".into();
+        shell.open_screensaver();
+        for _ in 0..30 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            let mut scene = Scene::new();
+            shell.build_screensaver(&mut scene, Size::new(1280.0, 800.0));
+        }
+        let steps = [(24u32, "burn-1"), (40, "burn-2"), (56, "burn-3"), (80, "burn-4")];
+        let mut frames = 0;
+        for (target, name) in steps {
+            while frames < target {
+                shell.update(1.0 / 60.0);
+                frames += 1;
+            }
+            let mut scene = Scene::new();
+            shell.build_screensaver(&mut scene, Size::new(1280.0, 800.0));
+            save(&gpu, &mut renderer, name, 1280, 800, &scene)?;
+        }
+    }
 
     println!("preview scritte in ./preview");
     Ok(())
@@ -588,5 +673,6 @@ fn save(
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header()?;
     writer.write_image_data(&compact)?;
+
     Ok(())
 }

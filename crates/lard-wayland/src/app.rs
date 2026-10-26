@@ -46,6 +46,15 @@ use wayland_client::backend::ObjectId;
 use wayland_client::globals::registry_queue_init;
 use wayland_client::protocol::{wl_keyboard, wl_output, wl_pointer, wl_region, wl_seat, wl_surface};
 use wayland_client::{Connection, Proxy, QueueHandle};
+use smithay_client_toolkit::dispatch2::Dispatch2;
+use wayland_protocols::ext::idle_notify::v1::client::{
+    ext_idle_notification_v1::{self, ExtIdleNotificationV1},
+    ext_idle_notifier_v1::ExtIdleNotifierV1,
+};
+
+/// User data of the raw `ext-idle-notify-v1` objects. SCTK routes every
+/// protocol through `Dispatch2`, so a tiny marker type is all that is needed.
+struct IdleData;
 
 #[derive(Clone, Debug)]
 enum Role {
@@ -65,6 +74,8 @@ enum Role {
     Notification,
     Greeter,
     Lock,
+    /// Built-in screensaver: a full-screen fluid over the session.
+    Screensaver,
 }
 
 struct OutputEntry {
@@ -120,6 +131,10 @@ struct App {
     session_lock: Option<SessionLock>,
     locked: bool,
     unlocking: bool,
+    /// `ext-idle-notify-v1`: the compositor tells us when the user went idle.
+    idle_notifier: Option<ExtIdleNotifierV1>,
+    idle_notification: Option<ExtIdleNotificationV1>,
+    seat: Option<wl_seat::WlSeat>,
 
     // GPU
     renderer: Renderer,
@@ -266,6 +281,12 @@ pub fn run(mode: Mode) -> Result<()> {
     let registry_state = RegistryState::new(&globals);
     let background_effect = BackgroundEffectState::new(&globals, &qh);
     let session_lock_state = SessionLockState::new(&globals, &qh);
+    // Idle detection for the built-in screensaver. Optional: compositors
+    // without ext-idle-notify-v1 simply keep the classic idle behaviour.
+    let idle_notifier = globals
+        .bind::<ExtIdleNotifierV1, _, IdleData>(&qh, 2..=2, IdleData)
+        .map_err(|error| tracing::debug!(%error, "ext-idle-notify-v1 unavailable"))
+        .ok();
 
     let shell = (mode == Mode::Shell).then(|| Shell::new(config.clone()));
 
@@ -336,6 +357,9 @@ pub fn run(mode: Mode) -> Result<()> {
         session_lock: None,
         locked: false,
         unlocking: false,
+        idle_notifier,
+        idle_notification: None,
+        seat: None,
         conn: conn.clone(),
         qh,
         registry_state,
@@ -484,6 +508,16 @@ impl App {
             IpcCommand::BrightnessDown => self.perform(ShellAction::BrightnessStep(-5)),
             IpcCommand::Reload => self.reload_config(),
             IpcCommand::Lock => self.spawn_lockscreen(),
+            IpcCommand::Screensaver => {
+                let open = self.shell.as_ref().is_some_and(Shell::screensaver_open);
+                if let Some(shell) = &mut self.shell {
+                    if open {
+                        shell.close_screensaver();
+                    } else {
+                        shell.open_screensaver();
+                    }
+                }
+            }
             IpcCommand::Quit => self.exit = true,
         }
         self.force_update = true;
@@ -514,6 +548,7 @@ impl App {
             shell.set_config(config);
         }
         self.rebuild_shell_surfaces();
+        self.arm_screensaver_idle();
         self.force_update = true;
         tracing::info!("configuration reloaded");
     }
@@ -539,6 +574,11 @@ impl App {
     }
 
     fn spawn_lockscreen(&mut self) {
+        // The lock screen covers everything: stop the screensaver so it does
+        // not keep rendering underneath it.
+        if let Some(shell) = &mut self.shell {
+            shell.close_screensaver();
+        }
         match std::process::Command::new("lard").arg("lock").spawn() {
             Ok(_) => tracing::info!("lockscreen launched"),
             Err(error) => tracing::error!(%error, "cannot launch lard lock"),
@@ -916,6 +956,11 @@ impl App {
                     shell.build_notification_island(&mut self.scene, size);
                 }
             }
+            Role::Screensaver => {
+                if let Some(shell) = &mut self.shell {
+                    shell.build_screensaver(&mut self.scene, size);
+                }
+            }
             Role::Greeter | Role::Lock => {
                 if let Some(greeter) = &mut self.greeter {
                     greeter.build_scene(
@@ -1182,6 +1227,45 @@ impl App {
             }
             None => self.remove_role(|r| matches!(r, Role::Notification)),
         }
+
+        // The screensaver covers every output. The surface is kept alive until
+        // the exit fade is over, so leaving is the exact reverse of entering.
+        let saver = self
+            .shell
+            .as_ref()
+            .is_some_and(Shell::screensaver_wants_surface);
+        if saver {
+            if !self.has_role(|role| matches!(role, Role::Screensaver)) {
+                let outputs: Vec<wl_output::WlOutput> = self.output_state.outputs().collect();
+                for output in outputs {
+                    if let Err(error) = self.create_screensaver(output) {
+                        tracing::error!(%error, "cannot create screensaver surface");
+                    }
+                }
+            }
+        } else if self.has_role(|role| matches!(role, Role::Screensaver)) {
+            self.remove_role(|role| matches!(role, Role::Screensaver));
+        }
+    }
+
+    /// Full-screen fluid overlay on the given output.
+    fn create_screensaver(&mut self, output: wl_output::WlOutput) -> Result<()> {
+        let output_id = output.id();
+        self.create_layer(LayerSpec {
+            role: Role::Screensaver,
+            output: Some(output),
+            output_id: Some(output_id),
+            layer: Layer::Overlay,
+            anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
+            // Zero means "fill the anchored area": the compositor configures
+            // the surface with the full output size.
+            size: (0, 0),
+            keyboard: KeyboardInteractivity::Exclusive,
+            exclusive_zone: -1,
+            margins: (0, 0, 0, 0),
+            namespace: "lard-screensaver",
+            input_none: false,
+        })
     }
 
     /// The notification island is taller when the notification has a body: the
@@ -1212,6 +1296,28 @@ impl App {
         for id in ids {
             self.surfaces.remove(&id);
         }
+    }
+
+    /// (Re)create the idle notification that opens the screensaver. Called
+    /// when the seat appears and after a configuration reload: the timeout and
+    /// the enable flag live in the shell configuration.
+    fn arm_screensaver_idle(&mut self) {
+        self.idle_notification = None;
+        if !self.config.screensaver.enabled {
+            tracing::debug!("screensaver disabled; idle timer not armed");
+            return;
+        }
+        let (Some(notifier), Some(seat)) = (self.idle_notifier.as_ref(), self.seat.as_ref())
+        else {
+            tracing::debug!("no ext-idle-notify seat yet; idle timer not armed");
+            return;
+        };
+        let timeout = self.config.screensaver.idle_secs().saturating_mul(1000);
+        // `get_idle_notification` (not the input-only variant) so an idle
+        // inhibitor — a video, a call — also holds the screensaver back.
+        self.idle_notification =
+            Some(notifier.get_idle_notification(timeout, seat, &self.qh, IdleData));
+        tracing::info!(secs = timeout / 1000, "screensaver idle timer armed");
     }
 
     fn create_layer(&mut self, spec: LayerSpec) -> Result<()> {
@@ -1894,6 +2000,28 @@ impl App {
             .and_then(|id| self.surfaces.get(id))
             .map(|entry| entry.role.clone());
 
+        // On the screensaver the arrows move between scenarios; any other key
+        // dismisses it. The keypress is swallowed either way, like a real
+        // screensaver: it must not reach the application underneath.
+        if matches!(role, Some(Role::Screensaver)) {
+            match event.keysym {
+                Keysym::Left | Keysym::Right => {
+                    let delta = if event.keysym == Keysym::Left { -1 } else { 1 };
+                    if let Some(shell) = &mut self.shell {
+                        shell.screensaver_cycle(delta);
+                    }
+                }
+                _ => {
+                    if let Some(shell) = &mut self.shell {
+                        shell.close_screensaver();
+                    }
+                }
+            }
+            self.force_update = true;
+            self.mark_all_dirty();
+            return;
+        }
+
         let target = match role {
             Some(Role::Launcher) => Some(Role::Launcher),
             Some(Role::ControlCenter) => Some(Role::ControlCenter),
@@ -1969,6 +2097,7 @@ impl App {
             // The notification island is not interactive: the clicks fall
             // through to the bar underneath.
             Role::Notification => {}
+            Role::Screensaver => {}
             Role::Dock => {
                 if let Some(shell) = &mut self.shell {
                     shell.dock_move(pos);
@@ -2044,6 +2173,7 @@ impl App {
                 }
             }
             Role::Notification => {}
+            Role::Screensaver => {}
             Role::Dock => {
                 if let Some(shell) = &mut self.shell {
                     shell.dock_leave();
@@ -2106,6 +2236,12 @@ impl App {
                     }
                 }
                 Role::Notification => None,
+                Role::Screensaver => {
+                    if let Some(shell) = &mut self.shell {
+                        shell.close_screensaver();
+                    }
+                    None
+                }
                 Role::Launcher => {
                     if let Some(shell) = &mut self.shell {
                         shell.launcher_press(pos)
@@ -2439,11 +2575,15 @@ impl SeatHandler for App {
         seat: wl_seat::WlSeat,
         capability: Capability,
     ) {
+        self.seat = Some(seat.clone());
         if capability == Capability::Keyboard && self.keyboard.is_none() {
             match self.seat_state.get_keyboard(qh, &seat, None) {
                 Ok(keyboard) => self.keyboard = Some(keyboard),
                 Err(error) => tracing::error!(%error, "cannot create keyboard"),
             }
+            // Idle notifications are tied to a seat: this is the first moment
+            // the screensaver timer can be armed.
+            self.arm_screensaver_idle();
         }
         if capability == Capability::Pointer && self.pointer.is_none() {
             match self.seat_state.get_pointer(qh, &seat) {
@@ -2777,4 +2917,50 @@ impl ProvidesRegistryState for App {
 
 wayland_client::delegate_noop!(App: ignore wl_region::WlRegion);
 smithay_client_toolkit::delegate_registry!(App);
+impl Dispatch2<ExtIdleNotifierV1, App> for IdleData {
+    fn event(
+        &self,
+        _app: &mut App,
+        _proxy: &ExtIdleNotifierV1,
+        _event: <ExtIdleNotifierV1 as Proxy>::Event,
+        _conn: &Connection,
+        _qh: &QueueHandle<App>,
+    ) {
+    }
+}
+
+impl Dispatch2<ExtIdleNotificationV1, App> for IdleData {
+    fn event(
+        &self,
+        app: &mut App,
+        _proxy: &ExtIdleNotificationV1,
+        event: ext_idle_notification_v1::Event,
+        _conn: &Connection,
+        _qh: &QueueHandle<App>,
+    ) {
+        tracing::debug!(?event, "idle notification event");
+        match event {
+            ext_idle_notification_v1::Event::Idled => {
+                tracing::info!("session idle: showing the screensaver");
+                if let Some(shell) = &mut app.shell {
+                    shell.open_screensaver();
+                }
+                app.force_update = true;
+                app.mark_all_dirty();
+            }
+            ext_idle_notification_v1::Event::Resumed => {
+                if let Some(shell) = &mut app.shell {
+                    if shell.screensaver_open() {
+                        tracing::info!("session active: hiding the screensaver");
+                    }
+                    shell.close_screensaver();
+                }
+                app.force_update = true;
+                app.mark_all_dirty();
+            }
+            _ => {}
+        }
+    }
+}
+
 smithay_client_toolkit::delegate_dispatch2!(App);

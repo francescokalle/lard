@@ -15,5 +15,5 @@ pub mod text;
 
 pub use gpu::Gpu;
 pub use renderer::{RenderStats, Renderer};
-pub use scene::{Corners, FontFamily, Scene, Shadow, TextAlign, TextStyle};
+pub use scene::{Corners, Fluid, FluidMode, FontFamily, Scene, Shadow, TextAlign, TextStyle};
 pub use surface::RenderSurface;

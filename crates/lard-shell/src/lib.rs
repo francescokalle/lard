@@ -12,6 +12,7 @@ pub mod launcher;
 pub mod niri_config;
 pub mod osd;
 pub mod popover;
+pub mod screensaver;
 pub mod settings;
 pub mod toasts;
 pub mod wallpaper;
@@ -38,6 +39,7 @@ use lard_services::{BluetoothDevice, ServiceEvent, WifiNetwork};
 use launcher::{Launcher, LauncherKey};
 use osd::Osd;
 use popover::{Popover, PopoverAction, PopoverData, PopoverKind};
+use screensaver::Screensaver;
 use settings::{SettingsAction, SettingsTab, SettingsView, Step, Toggle};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -172,6 +174,8 @@ pub struct Shell {
     bt_service_powered: bool,
     pub clock: String,
     pub date: String,
+    /// Long Italian date for the screensaver (`lunedì 26 ottobre`).
+    pub date_long: String,
     apps: Vec<DesktopEntry>,
     /// Cache of the real application icons used by the launcher and the dock.
     icons: AppIcons,
@@ -185,6 +189,7 @@ pub struct Shell {
     popover: Popover,
     wallpaper: WallpaperView,
     toasts: ToastStack,
+    screensaver: Screensaver,
     actions: Vec<ShellAction>,
     dirty: bool,
     reduce_motion: bool,
@@ -247,6 +252,7 @@ impl Shell {
         let wallpaper = WallpaperView::new(config.animation.panel, reduce_motion);
         let toasts = ToastStack::new(config.animation.notification, reduce_motion);
         let (clock, date) = clock_strings(&config, Local::now());
+        let date_long = italian_date_long(Local::now());
         let user = std::env::var("USER")
             .or_else(|_| std::env::var("LOGNAME"))
             .unwrap_or_else(|_| "user".into());
@@ -285,6 +291,7 @@ impl Shell {
             bt_service_powered: false,
             clock,
             date,
+            date_long,
             apps,
             icons,
             bars: HashMap::new(),
@@ -297,12 +304,18 @@ impl Shell {
             popover,
             wallpaper,
             toasts,
+            screensaver: Screensaver::new(),
             actions: Vec::new(),
             dirty: true,
             reduce_motion,
         };
         shell.apply_niri_theme();
         shell.restore_wallpaper();
+        // Decode the screensaver backdrop now: the first activation should not
+        // wait for a 4K JPEG.
+        shell
+            .screensaver
+            .request_wallpaper(&shell.config);
         shell
     }
 
@@ -310,6 +323,9 @@ impl Shell {
     /// launcher, notifications, niri snapshot).
     pub fn set_config(&mut self, config: Config) {
         self.config = config;
+        if !self.config.screensaver.enabled {
+            self.close_screensaver();
+        }
         self.apply_niri_theme();
         for bar in self.bars.values_mut() {
             bar.invalidate();
@@ -325,6 +341,8 @@ impl Shell {
             self.date = date;
             self.dirty = true;
         }
+        // The screensaver shows the long Italian date, like the greeter.
+        self.date_long = italian_date_long(now);
     }
 
     pub fn apply(&mut self, event: ServiceEvent) {
@@ -503,6 +521,7 @@ impl Shell {
             });
         }
         active |= self.toasts.active();
+        active |= self.screensaver.update(dt, &self.config.screensaver);
         if active {
             self.dirty = true;
         }
@@ -1694,6 +1713,11 @@ impl Shell {
             SettingsAction::SaveNiri => {
                 self.settings_save_niri();
             }
+            SettingsAction::ScreensaverEffect(index) => {
+                if let Some(effect) = lard_core::theme::ScreensaverEffect::ALL.get(index) {
+                    self.config.screensaver.effect = *effect;
+                }
+            }
             SettingsAction::NextNotificationPosition => {
                 use lard_core::theme::ToastPosition;
                 self.config.notifications.position = match self.config.notifications.position {
@@ -1761,6 +1785,18 @@ impl Shell {
             Toggle::RadiusLink => {
                 self.config.theme.radius.linked = !self.config.theme.radius.linked;
             }
+            Toggle::Screensaver => {
+                self.config.screensaver.enabled = !self.config.screensaver.enabled;
+                if !self.config.screensaver.enabled {
+                    self.close_screensaver();
+                }
+            }
+            Toggle::ScreensaverClock => {
+                self.config.screensaver.show_clock = !self.config.screensaver.show_clock
+            }
+            Toggle::ScreensaverRandom => {
+                self.config.screensaver.random = !self.config.screensaver.random
+            }
         }
     }
 
@@ -1792,6 +1828,26 @@ impl Shell {
             Step::Frost => {
                 self.config.theme.frost =
                     (self.config.theme.frost + delta as f32 / 100.0).clamp(0.2, 1.0);
+            }
+            Step::ScreensaverIdle => {
+                let minutes = i64::from(self.config.screensaver.idle_minutes) + i64::from(delta);
+                self.config.screensaver.idle_minutes = minutes.clamp(1, 120) as u32;
+            }
+            Step::ScreensaverSpeed => {
+                let speed = self.config.screensaver.speed + delta as f32 * 0.1;
+                self.config.screensaver.speed = (speed * 10.0).round().clamp(2.0, 30.0) / 10.0;
+            }
+            Step::ScreensaverIntensity => {
+                self.config.screensaver.intensity =
+                    (self.config.screensaver.intensity + delta as f32 / 100.0).clamp(0.0, 1.0);
+            }
+            Step::ScreensaverVeil => {
+                self.config.screensaver.veil =
+                    (self.config.screensaver.veil + delta as f32 / 100.0).clamp(0.0, 0.9);
+            }
+            Step::ScreensaverEntrance => {
+                let ms = self.config.screensaver.entrance_ms as i32 + delta;
+                self.config.screensaver.entrance_ms = ms.clamp(300, 2500) as u32;
             }
             Step::RadiusLg => {
                 if self.config.theme.radius.linked {
@@ -1844,6 +1900,48 @@ impl Shell {
             &self.config.theme,
             &self.config.font,
         );
+    }
+
+    // ---- screensaver ----
+
+    /// Whether the fluid overlay is showing (or fading out).
+    #[must_use]
+    pub fn screensaver_wants_surface(&self) -> bool {
+        self.screensaver.wants_surface()
+    }
+
+    #[must_use]
+    pub fn screensaver_open(&self) -> bool {
+        self.screensaver.is_open()
+    }
+
+    /// Show the built-in screensaver. Returns false when it was already open.
+    pub fn open_screensaver(&mut self) -> bool {
+        let opened = self.screensaver.open(&self.config.screensaver);
+        if opened {
+            self.dirty = true;
+        }
+        opened
+    }
+
+    /// Move to the previous/next screensaver scenario (arrow keys).
+    pub fn screensaver_cycle(&mut self, delta: i32) {
+        self.screensaver.cycle(delta);
+        self.dirty = true;
+    }
+
+    pub fn close_screensaver(&mut self) -> bool {
+        let closed = self.screensaver.close();
+        if closed {
+            self.dirty = true;
+        }
+        closed
+    }
+
+    pub fn build_screensaver(&mut self, scene: &mut Scene, size: Size) {
+        let (clock, date) = (self.clock.clone(), self.date_long.clone());
+        self.screensaver
+            .build(scene, size, &self.config, &clock, &date);
     }
 
     // ---- toasts ----

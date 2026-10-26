@@ -22,6 +22,7 @@ lard-wayland = { path = "crates/lard-wayland" }
 
 # Wayland
 wayland-client = "0.31.15"
+wayland-protocols = { version = "0.32.13", features = ["client", "staging"] }
 smithay-client-toolkit = { version = "0.21.1", features = ["system"] }
 calloop = "0.14.5"
 calloop-wayland-source = "0.4.1"

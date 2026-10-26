@@ -64,6 +64,7 @@ pub const SAVE: &str = "\u{e161}";
 pub const FILE: &str = "\u{e24d}";
 pub const CHECK: &str = "\u{e5ca}";
 pub const WALLPAPER: &str = "\u{e1bc}";
+pub const SCREEN: &str = "\u{e30c}";
 
 /// Pick a symbolic icon from a desktop entry's icon/name/categories.
 #[must_use]

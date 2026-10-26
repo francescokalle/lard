@@ -34,6 +34,8 @@ pub enum IpcCommand {
     BrightnessDown,
     Reload,
     Lock,
+    /// Toggle the built-in screensaver (useful from keybinds and for testing).
+    Screensaver,
     Quit,
 }
 
@@ -53,6 +55,9 @@ impl IpcCommand {
             "settings-bar" => Some(Self::Settings(Some(SettingsTab::Bar))),
             "settings-dock" => Some(Self::Settings(Some(SettingsTab::Dock))),
             "settings-effects" => Some(Self::Settings(Some(SettingsTab::Effects))),
+            "settings-screen" | "settings-screensaver" => {
+                Some(Self::Settings(Some(SettingsTab::Screen)))
+            }
             "settings-niri" => Some(Self::Settings(Some(SettingsTab::Niri))),
             "settings-info" => Some(Self::Settings(Some(SettingsTab::Info))),
             "wallpapers" | "wallpaper" => Some(Self::Wallpapers),
@@ -63,6 +68,7 @@ impl IpcCommand {
             "brightness-down" => Some(Self::BrightnessDown),
             "reload" => Some(Self::Reload),
             "lock" => Some(Self::Lock),
+            "screensaver" | "saver" => Some(Self::Screensaver),
             "quit" => Some(Self::Quit),
             _ => None,
         }

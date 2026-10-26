@@ -13,6 +13,7 @@ lard-services.workspace = true
 lard-shell.workspace = true
 lard-greeter.workspace = true
 wayland-client.workspace = true
+wayland-protocols.workspace = true
 smithay-client-toolkit.workspace = true
 calloop.workspace = true
 calloop-wayland-source.workspace = true

@@ -2,7 +2,7 @@
 
 use crate::theme::{
     AnimationConfig, BarConfig, DockConfig, FontConfig, GreeterConfig, LauncherConfig,
-    NotificationConfig, OsdConfig, Theme,
+    NotificationConfig, OsdConfig, ScreensaverConfig, Theme,
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -20,6 +20,7 @@ pub struct Config {
     pub notifications: NotificationConfig,
     pub greeter: GreeterConfig,
     pub animation: AnimationConfig,
+    pub screensaver: ScreensaverConfig,
 }
 
 impl Config {
@@ -144,6 +145,21 @@ impl Config {
         if self.font.size_body < 6.0 || self.font.size_large < self.font.size_body {
             return invalid("font sizes are invalid");
         }
+        if !(1..=120).contains(&self.screensaver.idle_minutes) {
+            return invalid("screensaver.idle_minutes must be between 1 and 120");
+        }
+        if !(300..=2500).contains(&self.screensaver.entrance_ms) {
+            return invalid("screensaver.entrance_ms must be between 300 and 2500");
+        }
+        if !(0.1..=3.0).contains(&self.screensaver.speed) {
+            return invalid("screensaver.speed must be between 0.1 and 3");
+        }
+        if !(0.0..=1.0).contains(&self.screensaver.intensity) {
+            return invalid("screensaver.intensity must be in 0..=1");
+        }
+        if !(0.0..=0.95).contains(&self.screensaver.veil) {
+            return invalid("screensaver.veil must be in 0..=0.95");
+        }
         for (name, spring) in [
             ("animation.panel", self.animation.panel),
             ("animation.launcher", self.animation.launcher),
@@ -245,6 +261,40 @@ mod tests {
         parsed.validate().unwrap();
         assert!(text.contains("[dock]"));
         assert!(text.contains("icons = \"Material Icons\""));
+    }
+
+    #[test]
+    fn screensaver_defaults_and_roundtrip() {
+        let config = Config::default();
+        assert!(config.screensaver.enabled);
+        assert_eq!(config.screensaver.idle_secs(), 300);
+        assert_eq!(config.screensaver.effect, crate::theme::ScreensaverEffect::Liquid);
+
+        let text = toml::to_string_pretty(&config).unwrap();
+        assert!(text.contains("[screensaver]"));
+        assert!(text.contains("effect = \"liquid\""));
+        let parsed: Config = toml::from_str(&text).unwrap();
+        parsed.validate().unwrap();
+        assert_eq!(parsed.screensaver.idle_minutes, 5);
+    }
+
+    #[test]
+    fn screensaver_rejects_out_of_range_values() {
+        let mut c = Config::default();
+        c.screensaver.idle_minutes = 0;
+        assert!(c.validate().is_err());
+        c.screensaver.idle_minutes = 121;
+        assert!(c.validate().is_err());
+
+        let mut c = Config::default();
+        c.screensaver.speed = 0.0;
+        assert!(c.validate().is_err());
+        c.screensaver.speed = 4.0;
+        assert!(c.validate().is_err());
+
+        let mut c = Config::default();
+        c.screensaver.intensity = 1.5;
+        assert!(c.validate().is_err());
     }
 
     #[test]
