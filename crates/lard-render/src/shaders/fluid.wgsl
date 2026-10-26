@@ -124,10 +124,16 @@ struct Body {
 /// A single liquid body: premultiplied colour and alpha of the chain.
 fn liquid_layer(p: vec2<f32>, t: f32, mode: u32, seed: f32, intensity: f32) -> Body {
         let height = field(p, t, seed);
-        let inside = smoothstep(0.985, 1.015, height);
         let eps = 0.02;
         let dx = field(p + vec2<f32>(eps, 0.0), t, seed) - height;
         let dy = field(p + vec2<f32>(0.0, eps), t, seed) - height;
+        // Antialiasing: the iso-line of the potential is only one pixel wide
+        // in field units, which is `gradient / screen height`. Normalising the
+        // threshold by that width gives a clean edge whatever the slope, while
+        // the fixed epsilon used before produced the stair steps.
+        let gradient = max(length(vec2<f32>(dx, dy)) / eps, 0.0005);
+        let aa = clamp(gradient / max(f.screen.y, 1.0), 0.0004, 0.08);
+        let inside = smoothstep(1.0 - aa, 1.0 + aa, height);
         let normal = normalize(vec3<f32>(-dx / eps * 0.055, -dy / eps * 0.055, 1.0));
         let facing = clamp(normal.z, 0.0, 1.0);
         let fresnel = pow(1.0 - facing, 2.4);
