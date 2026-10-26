@@ -264,11 +264,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let p = (uv - vec2<f32>(0.5, 0.5)) * vec2<f32>(aspect, 1.0);
 
     // ---- room: volumetric fog and caustics, all procedural -----------------
+    // A single fbm: two more would triple the fill cost on integrated GPUs,
+    // and the warp only needs to break the regularity.
     let warp = vec2<f32>(
-        fbm(p * 0.85 + vec2<f32>(0.0, t * 0.021)),
-        fbm(p * 0.85 + vec2<f32>(3.7, 1.1) - vec2<f32>(t * 0.018, 0.0)),
-    ) - vec2<f32>(0.47, 0.47);
-    let fog = fbm(p * 1.15 + warp * 1.7 + vec2<f32>(t * 0.013, -t * 0.011));
+        sin(p.y * 1.6 + t * 0.13),
+        cos(p.x * 1.3 - t * 0.11),
+    ) * 0.35;
+    let fog = fbm(p * 1.15 + warp + vec2<f32>(t * 0.013, -t * 0.011));
     // Cold graphite, lit by the palette accent: a dark room, not a flat black.
     var room = mix(
         vec3<f32>(0.008, 0.011, 0.016),
@@ -278,9 +280,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // Caustics: thin sheets of light where the fog folds.
     let caustic = pow(smoothstep(0.62, 0.95, fog), 5.0);
     room += f.accent.rgb * caustic * (0.14 + 0.18 * intensity);
-    // A slow, out-of-focus liquid shadow behind everything gives depth.
-    let haze = smoothstep(0.30, 1.35, field(p * 0.55 + vec2<f32>(0.0, t * 0.01), t * 0.6, seed_a + 0.77));
-    room += f.accent.rgb * haze * (0.035 + 0.035 * intensity);
+
     room *= 1.0 - veil;
     // Vignette and a darker foot so the clock stays readable.
     let vig = smoothstep(1.45, 0.10, length(p * vec2<f32>(0.82, 1.0)));
