@@ -104,29 +104,38 @@ fn metaballs(p: vec2<f32>, base: u32) -> f32 {
 /// Gas density: domain-warped fbm, the classical volumetric cloud.
 fn gas_density(p: vec2<f32>, t: f32, seed: f32) -> f32 {
     let warp = vec2<f32>(
-        sin(p.y * 1.35 + t * 0.17 + seed * 3.0),
-        cos(p.x * 1.15 - t * 0.14 + seed * 2.0),
-    ) * 0.55;
-    return fbm(p * 1.20 + warp + vec2<f32>(t * 0.018, -t * 0.013));
+        sin(p.y * 1.20 + t * 0.15 + seed * 3.0),
+        cos(p.x * 1.05 - t * 0.12 + seed * 2.0),
+    ) * 0.62;
+    // Slightly lower frequency than before: fewer, larger structures.
+    return fbm(p * 1.05 + warp + vec2<f32>(t * 0.018, -t * 0.013));
 }
 
-/// Gas: soft clouds lit from above, with a bright scattering rim.
+/// Gas: a nebula, not a fog. Only the filaments hold colour; the rest is a very
+/// faint haze, so the room (and the clock) stay readable underneath.
 fn gas_layer(p: vec2<f32>, t: f32, seed: f32, intensity: f32) -> vec4<f32> {
     // One density evaluation per pixel: the shading normal comes from the
     // screen-space derivatives of the same field.
     let height = gas_density(p, t, seed);
     let raw = vec2<f32>(dpdx(height), dpdy(height));
-    let normal = normalize(vec3<f32>(-raw * 22.0, 1.0));
+    let normal = normalize(vec3<f32>(-raw * 26.0, 1.0));
     let facing = clamp(normal.z, 0.0, 1.0);
-    let key = normalize(vec3<f32>(-0.25, 0.55, 0.80));
-    let lit = 0.30 + 0.70 * clamp(dot(normal, key), 0.0, 1.0);
-    let density = smoothstep(0.40, 0.66, height);
-    let rim = pow(1.0 - facing, 2.5);
+    let key = normalize(vec3<f32>(-0.22, 0.42, 0.88));
+    let lit = 0.22 + 0.78 * clamp(dot(normal, key), 0.0, 1.0);
 
-    var color = f.accent.rgb * density * lit * 0.95;
-    color += f.light.rgb * rim * density * (0.20 + 0.30 * intensity);
-    color += f.accent.rgb * smoothstep(0.52, 0.95, height) * 0.12;
-    let alpha = clamp(density * 0.85, 0.0, 1.0);
+    // High threshold: the fbm mean is ~0.44, so the old 0.40..0.66 range lit up
+    // more than half the screen. This keeps roughly a fifth of it.
+    let density = smoothstep(0.52, 0.80, height);
+    let rim = pow(1.0 - facing, 2.0);
+    let haze = smoothstep(0.30, 0.58, height) * 0.05;
+
+    // Two tones of the same accent: cool in the thin parts, warmer where the
+    // gas is dense.
+    let tint = mix(f.accent.rgb, hue_rotate(f.accent.rgb, 0.60), smoothstep(0.50, 0.86, height) * 0.55);
+    var color = tint * density * lit * 0.62;
+    color += f.light.rgb * rim * density * (0.16 + 0.26 * intensity);
+    color += tint * haze;
+    let alpha = clamp(density * 0.72 + haze, 0.0, 1.0);
     return vec4<f32>(color * alpha, alpha);
 }
 
@@ -146,8 +155,11 @@ fn dust(uv: vec2<f32>, t: f32, scale: f32) -> f32 {
         if (seed < 0.42) {
             continue;
         }
-        let jitter = vec2<f32>(fract(seed * 13.7), fract(seed * 7.3)) - 0.5;
-        let delta = local - offset - jitter * 0.6;
+        // Full-cell jitter on both axes (different multipliers, or x and y
+        // would move together): with only a fraction of a cell the grains line
+        // up in a visible lattice.
+        let jitter = vec2<f32>(fract(seed * 13.7), fract(seed * 31.9)) - 0.5;
+        let delta = local - offset - jitter;
         let twinkle = 0.35 + 0.65 * (0.5 + 0.5 * sin(t * 1.6 + seed * 40.0));
         let size = 0.035 + 0.05 * fract(seed * 3.7);
         sum += smoothstep(size, 0.0, length(delta)) * twinkle;

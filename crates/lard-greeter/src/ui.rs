@@ -82,23 +82,111 @@ pub struct GreeterView {
     /// Wallpaper pixels for the backdrop, and whether they were handed to the
     /// renderer already (the texture is uploaded only once).
     wallpaper: Option<(u32, u32, Vec<u8>)>,
+    /// Source file: decoded only once the output size is known, so the image is
+    /// resampled straight to the screen instead of being shrunk to a thumbnail.
+    wallpaper_path: Option<std::path::PathBuf>,
     wallpaper_uploaded: bool,
 }
 
+/// Cache file for a wallpaper resampled at a given size, keyed by the source
+/// path, its modification time and its length (`v1` bumps the format).
+fn wallpaper_cache_path(
+    source: &std::path::Path,
+    width: u32,
+    height: u32,
+) -> Option<std::path::PathBuf> {
+    use std::hash::{Hash, Hasher};
+    let metadata = std::fs::metadata(source).ok()?;
+    let modified = metadata
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    modified.hash(&mut hasher);
+    metadata.len().hash(&mut hasher);
+    let dir = std::env::var_os("XDG_CACHE_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".cache")))?
+        .join("lard");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.join(format!("wallpaper-v1-{:016x}-{width}x{height}.rgba", hasher.finish())))
+}
+
 impl GreeterView {
-    /// Decode the desktop wallpaper for the lock screen backdrop. Done once, at
-    /// start-up: the lock surface must not block on a 4K JPEG later.
+    /// Point the lock screen at the desktop wallpaper. The file itself is read
+    /// on the first frame, when the size of the output is known.
     pub fn load_wallpaper(&mut self, path: &std::path::Path) {
-        // Its own texture, not the icon atlas: enough resolution to stay
-        // readable on a 1600px-wide screen, still cheap to blur.
-        const W: u32 = 512;
-        const H: u32 = 288;
-        let Ok(image) = image::open(path) else {
+        // Decoding happens later, on the first frame: only then the size of the
+        // output is known and the image can be resampled exactly, which is what
+        // keeps the backdrop sharp (a fixed thumbnail looked pixelated).
+        self.wallpaper_path = Some(path.to_path_buf());
+        self.wallpaper = None;
+        self.wallpaper_uploaded = false;
+    }
+
+    /// Resample the wallpaper to exactly the surface size. The result is cached
+    /// on disk: decoding a 4K JPEG plus a Catmull-Rom resample costs more than
+    /// a second, far too slow to pay on every unlock, and the lock must appear
+    /// immediately.
+    fn ensure_wallpaper(&mut self, size: Size) {
+        let Some(path) = self.wallpaper_path.clone() else {
+            return;
+        };
+        let width = size.w.max(1.0).round() as u32;
+        let height = size.h.max(1.0).round() as u32;
+        if self
+            .wallpaper
+            .as_ref()
+            .is_some_and(|(w, h, _)| (*w, *h) == (width, height))
+        {
+            return;
+        }
+        let expected = (width as usize) * (height as usize) * 4;
+        let cache = wallpaper_cache_path(&path, width, height);
+        if let Some(bytes) = cache
+            .as_ref()
+            .and_then(|cache| std::fs::read(cache).ok())
+            .filter(|bytes| bytes.len() == expected)
+        {
+            self.wallpaper = Some((width, height, bytes));
+            self.wallpaper_uploaded = false;
+            return;
+        }
+        let Ok(image) = image::open(&path) else {
             self.wallpaper = None;
             return;
         };
-        let small = image.resize_exact(W, H, image::imageops::FilterType::Triangle);
-        self.wallpaper = Some((W, H, small.to_rgba8().into_raw()));
+        let resized = image::imageops::resize(
+            &image.to_rgba8(),
+            width,
+            height,
+            image::imageops::FilterType::CatmullRom,
+        );
+        let rgba = resized.into_raw();
+        if let Some(cache) = &cache {
+            // One file per wallpaper change: drop the previous one for this
+            // size so the cache directory does not grow forever.
+            if let (Some(dir), Some(name)) = (cache.parent(), cache.file_name().and_then(|n| n.to_str())) {
+                let suffix = format!("-{width}x{height}.rgba");
+                if let Ok(entries) = std::fs::read_dir(dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        let other = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+                        if other.starts_with("wallpaper-v1-")
+                            && other.ends_with(&suffix)
+                            && other != name
+                        {
+                            let _ = std::fs::remove_file(&path);
+                        }
+                    }
+                }
+            }
+            let _ = std::fs::write(cache, &rgba);
+        }
+        self.wallpaper = Some((width, height, rgba));
         self.wallpaper_uploaded = false;
     }
 
@@ -149,6 +237,7 @@ impl GreeterView {
             clock: String::new(),
             date: String::new(),
             wallpaper: None,
+            wallpaper_path: None,
             wallpaper_uploaded: false,
         }
     }
@@ -439,12 +528,17 @@ impl GreeterView {
             return;
         }
 
-        let wallpaper = &self.config.wallpaper;
+        // Cloned (a handful of fields): the wallpaper must be resampled, which
+        // needs `&mut self` while the config lives in `self`.
+        let wallpaper = self.config.wallpaper.clone();
         let lock = self.mode == AuthMode::Lock;
         // A session-lock surface must stay opaque until unlock; only the card
         // fades. Exposing the desktop before `unlock()` would leak content.
         let background_alpha = if lock { 1.0 } else { fade };
         let mut drew_wallpaper = false;
+        if wallpaper.background == lard_core::theme::LockBackground::Wallpaper {
+            self.ensure_wallpaper(size);
+        }
         if wallpaper.background == lard_core::theme::LockBackground::Wallpaper
             && let Some((width, height, rgba)) = &self.wallpaper
         {
