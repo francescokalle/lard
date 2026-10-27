@@ -79,25 +79,27 @@ pub struct GreeterView {
     cursor: Option<Point>,
     clock: String,
     date: String,
-    /// Wallpaper shown behind the card: id in the image atlas + RGBA thumbnail.
-    wallpaper: Option<(u32, Vec<u8>)>,
+    /// Wallpaper pixels for the backdrop, and whether they were handed to the
+    /// renderer already (the texture is uploaded only once).
+    wallpaper: Option<(u32, u32, Vec<u8>)>,
+    wallpaper_uploaded: bool,
 }
 
 impl GreeterView {
     /// Decode the desktop wallpaper for the lock screen backdrop. Done once, at
     /// start-up: the lock surface must not block on a 4K JPEG later.
     pub fn load_wallpaper(&mut self, path: &std::path::Path) {
-        const ID: u32 = 0x4C4F_434B;
-        // The image atlas cell is 128x128: anything larger would be cut and
-        // its rows misread (visible as horizontal stripes).
-        const W: u32 = 128;
-        const H: u32 = 72;
+        // Its own texture, not the icon atlas: enough resolution to stay
+        // readable on a 1600px-wide screen, still cheap to blur.
+        const W: u32 = 512;
+        const H: u32 = 288;
         let Ok(image) = image::open(path) else {
             self.wallpaper = None;
             return;
         };
         let small = image.resize_exact(W, H, image::imageops::FilterType::Triangle);
-        self.wallpaper = Some((ID, small.to_rgba8().into_raw()));
+        self.wallpaper = Some((W, H, small.to_rgba8().into_raw()));
+        self.wallpaper_uploaded = false;
     }
 
     pub fn new(mode: AuthMode, config: &GreeterConfig, reduce_motion: bool) -> Self {
@@ -147,6 +149,7 @@ impl GreeterView {
             clock: String::new(),
             date: String::new(),
             wallpaper: None,
+            wallpaper_uploaded: false,
         }
     }
 
@@ -443,10 +446,14 @@ impl GreeterView {
         let background_alpha = if lock { 1.0 } else { fade };
         let mut drew_wallpaper = false;
         if wallpaper.background == lard_core::theme::LockBackground::Wallpaper
-            && let Some((id, rgba)) = &self.wallpaper
+            && let Some((width, height, rgba)) = &self.wallpaper
         {
-            scene.upload_image(*id, 128, 72, rgba.clone());
-            scene.image(Rect::new(0.0, 0.0, size.w, size.h), *id, 0.0);
+            if !self.wallpaper_uploaded {
+                scene.wallpaper_upload(*width, *height, rgba.clone());
+                self.wallpaper_uploaded = true;
+            }
+            // Behind everything: a normal image would be painted over the card.
+            scene.wallpaper(Rect::new(0.0, 0.0, size.w, size.h));
             scene.rect(
                 Rect::new(0.0, 0.0, size.w, size.h),
                 theme

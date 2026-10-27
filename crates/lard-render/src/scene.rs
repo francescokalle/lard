@@ -241,6 +241,12 @@ pub struct Scene {
     pub rects: Vec<RectCmd>,
     pub texts: Vec<TextCmd>,
     pub images: Vec<ImageCmd>,
+    /// Full-screen wallpaper drawn behind everything (lock screen). It has a
+    /// dedicated texture, so it is not limited by the icon atlas cell.
+    pub wallpaper: Option<Rect>,
+    /// RGBA of the wallpaper, sent once: the renderer re-uploads only when the
+    /// size changes.
+    pub wallpaper_data: Option<(u32, u32, Vec<u8>)>,
     pub image_uploads: Vec<ImageUpload>,
     /// Animated fluid drawn behind everything else (screensaver).
     pub fluid: Option<Fluid>,
@@ -260,6 +266,7 @@ impl Scene {
         self.rects.clear();
         self.texts.clear();
         self.images.clear();
+        self.wallpaper = None;
         self.image_uploads.clear();
         self.fluid = None;
         self.arena.clear();
@@ -367,6 +374,16 @@ impl Scene {
     }
 
     /// Draw a rounded image quad referencing a previously uploaded image.
+    /// Draw the wallpaper behind every other command.
+    pub fn wallpaper(&mut self, rect: Rect) {
+        self.wallpaper = Some(rect);
+    }
+
+    /// Hand the wallpaper pixels to the renderer (uploaded once).
+    pub fn wallpaper_upload(&mut self, width: u32, height: u32, rgba: Vec<u8>) {
+        self.wallpaper_data = Some((width, height, rgba));
+    }
+
     pub fn image(&mut self, rect: Rect, id: u32, radius: f32) {
         self.images.push(ImageCmd {
             rect,

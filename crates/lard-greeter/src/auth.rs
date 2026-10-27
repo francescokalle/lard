@@ -39,6 +39,29 @@ pub enum AuthEvent {
     Failure { message: String },
 }
 
+/// First existing `/etc/pam.d` service among the preferred one, the one LARD
+/// installs and the system login stack.
+fn resolve_pam_service(preferred: &str) -> String {
+    let dir = std::path::Path::new("/etc/pam.d");
+    let candidates = [preferred, "lard-greeter", "login"];
+    for service in candidates {
+        if service.is_empty() {
+            continue;
+        }
+        if dir.join(service).exists() {
+            if service != preferred {
+                tracing::warn!(
+                    preferred,
+                    service,
+                    "PAM service not installed; using the fallback"
+                );
+            }
+            return service.to_string();
+        }
+    }
+    preferred.to_string()
+}
+
 pub struct AuthJob {
     pub username: String,
     pub password: Zeroizing<String>,
@@ -56,7 +79,10 @@ impl AuthController {
         config: &GreeterConfig,
         ui: Sender<AuthEvent>,
     ) -> Result<Self, String> {
-        let service = config.pam_service.clone();
+        // A missing PAM file makes every attempt fail with a configuration
+        // error. Fall back to the service this project installs, then to the
+        // system login stack.
+        let service = resolve_pam_service(&config.pam_service);
         let allow_empty = config.allow_empty_password;
         let backend = match mode {
             AuthMode::Lock => AuthBackend::Pam,

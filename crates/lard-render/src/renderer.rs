@@ -4,7 +4,7 @@ use crate::text::physical_style;
 use crate::text::{TextEngine, align_offset};
 use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
-use lard_core::Point;
+use lard_core::{Point, Rect};
 use lard_core::theme::FontConfig;
 use std::collections::HashMap;
 
@@ -245,6 +245,10 @@ pub struct Renderer {
     rects: Vec<RectGpu>,
     glyphs: Vec<TextGpu>,
     images: Vec<ImageGpu>,
+    /// Wallpaper texture (lock screen), independent of the icon atlas.
+    wallpaper: Option<WallpaperTexture>,
+    /// Full-screen quad of the wallpaper, if this frame draws one.
+    wallpaper_quad: Option<Rect>,
     rect_buffer: wgpu::Buffer,
     rect_capacity: u64,
     text_buffer: wgpu::Buffer,
@@ -412,6 +416,8 @@ impl Renderer {
             rects: Vec::with_capacity(64),
             glyphs: Vec::with_capacity(256),
             images: Vec::with_capacity(16),
+            wallpaper: None,
+            wallpaper_quad: None,
             rect_buffer: gpu.create_vertex_buffer("rect-instances", 4),
             rect_capacity: 4,
             text_buffer: gpu.create_vertex_buffer("text-instances", 4),
@@ -611,23 +617,32 @@ impl Renderer {
             // mostly this shader, and an upscaled buffer looked visibly soft.
             self.write_fluid_uniform(&fluid, screen);
         }
+        self.wallpaper_quad = None;
+        if let Some((width, height, rgba)) = &scene.wallpaper_data {
+            let size = (*width, *height);
+            if self
+                .wallpaper
+                .as_ref()
+                .is_none_or(|wallpaper| wallpaper.size != size)
+            {
+                self.wallpaper = Some(WallpaperTexture::new(&self.device, &self.queue, &self.atlas_layout, size, rgba));
+            }
+        }
+        if let (Some(rect), Some(_)) = (scene.wallpaper, &self.wallpaper) {
+            let physical = rect.scaled(scale);
+            self.images.push(ImageGpu {
+                rect: [physical.x, physical.y, physical.w, physical.h],
+                uv: [0.0, 0.0, 1.0, 1.0],
+                radii: [0.0; 4],
+                alpha: [1.0, 0.0, 0.0, 0.0],
+            });
+            self.wallpaper_quad = Some(rect);
+        }
         for cmd in &scene.images {
             if !self.image_atlas.has(cmd.id) {
                 continue;
             }
-            let physical = cmd.rect.scaled(scale);
-            let uv = self.image_atlas.uv(cmd.id);
-            self.images.push(ImageGpu {
-                rect: [physical.x, physical.y, physical.w, physical.h],
-                uv,
-                radii: [
-                    cmd.corners.tl * scale,
-                    cmd.corners.tr * scale,
-                    cmd.corners.br * scale,
-                    cmd.corners.bl * scale,
-                ],
-                alpha: [1.0, 0.0, 0.0, 0.0],
-            });
+            self.images.push(image_instance(cmd, &self.image_atlas, scale));
         }
 
         let globals = [screen_w as f32, screen_h as f32, 0.0, 0.0];
@@ -769,6 +784,19 @@ impl Renderer {
                 draw_calls += 1;
             }
 
+            // The wallpaper is the first instance: drawn before the rects so
+            // the card and the panels stay on top of it.
+            if self.wallpaper_quad.is_some()
+                && let Some(wallpaper) = &self.wallpaper
+            {
+                pass.set_pipeline(&pipelines.image);
+                pass.set_bind_group(0, &self.globals_bind_group, &[]);
+                pass.set_bind_group(1, &wallpaper.bind_group, &[]);
+                pass.set_vertex_buffer(0, self.image_buffer.slice(..));
+                pass.draw(0..6, 0..1);
+                draw_calls += 1;
+            }
+
             if !self.rects.is_empty() {
                 pass.set_pipeline(&pipelines.rect);
                 pass.set_bind_group(0, &self.globals_bind_group, &[]);
@@ -777,12 +805,15 @@ impl Renderer {
                 draw_calls += 1;
             }
 
-            if !self.images.is_empty() {
+            if self.images.len() > usize::from(self.wallpaper_quad.is_some()) {
                 pass.set_pipeline(&pipelines.image);
                 pass.set_bind_group(0, &self.globals_bind_group, &[]);
                 pass.set_bind_group(1, &self.image_atlas.bind_group, &[]);
                 pass.set_vertex_buffer(0, self.image_buffer.slice(..));
-                pass.draw(0..6, 0..self.images.len() as u32);
+                pass.draw(
+                    0..6,
+                    u32::from(self.wallpaper_quad.is_some())..self.images.len() as u32,
+                );
                 draw_calls += 1;
             }
             if !self.glyphs.is_empty() {
@@ -981,6 +1012,105 @@ mod tests {
         // Fractional scales snap in physical pixels too.
         let (x, y) = run_origin(Point::new(10.0, 10.0), 1.5, TextAlign::Left, None, 10.0);
         assert_eq!((x, y), (15.0, 15.0));
+    }
+}
+
+/// Standalone texture for the lock screen wallpaper.
+struct WallpaperTexture {
+    size: (u32, u32),
+    _texture: wgpu::Texture,
+    bind_group: wgpu::BindGroup,
+}
+
+impl WallpaperTexture {
+    fn new(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        size: (u32, u32),
+        rgba: &[u8],
+    ) -> Self {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("wallpaper"),
+            size: wgpu::Extent3d {
+                width: size.0.max(1),
+                height: size.1.max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(size.0 * 4),
+                rows_per_image: Some(size.1),
+            },
+            wgpu::Extent3d {
+                width: size.0.max(1),
+                height: size.1.max(1),
+                depth_or_array_layers: 1,
+            },
+        );
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("wallpaper-sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("wallpaper-bind-group"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+        Self {
+            size,
+            _texture: texture,
+            bind_group,
+        }
+    }
+}
+
+/// GPU instance of an image command, scaled to physical pixels.
+fn image_instance(
+    cmd: &crate::scene::ImageCmd,
+    atlas: &ImageAtlas,
+    scale: f32,
+) -> ImageGpu {
+    let physical = cmd.rect.scaled(scale);
+    ImageGpu {
+        rect: [physical.x, physical.y, physical.w, physical.h],
+        uv: atlas.uv(cmd.id),
+        radii: [
+            cmd.corners.tl * scale,
+            cmd.corners.tr * scale,
+            cmd.corners.br * scale,
+            cmd.corners.bl * scale,
+        ],
+        alpha: [1.0, 0.0, 0.0, 0.0],
     }
 }
 
