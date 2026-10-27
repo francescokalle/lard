@@ -509,10 +509,11 @@ impl WallpaperView {
             };
             if let Some(thumb) = &thumb {
                 scene.upload_image(id, THUMB_W, THUMB_H, thumb.rgba.clone());
-                scene.image(
+                scene.image_alpha(
                     card.inset(inset),
                     id,
                     (theme.radius.card() - inset).max(0.0),
+                    p,
                 );
             } else {
                 scene.rect(

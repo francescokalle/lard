@@ -171,6 +171,8 @@ pub struct ImageCmd {
     pub rect: Rect,
     pub id: u32,
     pub corners: Corners,
+    /// 0..1 multiplier: icons must fade with the panel they belong to.
+    pub alpha: f32,
 }
 
 /// A decoded RGBA image to (re)upload into the image atlas. The renderer
@@ -385,10 +387,16 @@ impl Scene {
     }
 
     pub fn image(&mut self, rect: Rect, id: u32, radius: f32) {
+        self.image_alpha(rect, id, radius, 1.0);
+    }
+
+    /// An image drawn with an opacity multiplier, for panels that fade.
+    pub fn image_alpha(&mut self, rect: Rect, id: u32, radius: f32, alpha: f32) {
         self.images.push(ImageCmd {
             rect,
             id,
             corners: Corners::all(radius),
+            alpha: alpha.clamp(0.0, 1.0),
         });
     }
 

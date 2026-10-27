@@ -438,7 +438,7 @@ impl Default for GreeterConfig {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Default)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AnimationConfig {
     pub panel: crate::anim::SpringConfig,
@@ -448,6 +448,21 @@ pub struct AnimationConfig {
     /// Respect users who prefer less motion: all springs snap and fades become
     /// near-instant.
     pub reduce_motion: bool,
+}
+
+impl Default for AnimationConfig {
+    /// The shipped feel: one family of springs, each tuned to what it animates.
+    /// Panels and popovers land decisively, the launcher glides, the OSD is
+    /// immediate and notifications pop slightly.
+    fn default() -> Self {
+        Self {
+            panel: crate::anim::SpringConfig::SNAPPY,
+            launcher: crate::anim::SpringConfig::SMOOTH,
+            osd: crate::anim::SpringConfig::STRICT,
+            notification: crate::anim::SpringConfig::BOUNCY,
+            reduce_motion: false,
+        }
+    }
 }
 
 /// Visual effect behind the built-in screensaver.

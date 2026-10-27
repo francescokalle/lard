@@ -193,7 +193,7 @@ impl Dock {
             }
             match icons.id_for(&item.entry, scene) {
                 Some(id) => {
-                    scene.image(item.rect.inset(4.0), id, theme.radius.card());
+                    scene.image_alpha(item.rect.inset(4.0), id, theme.radius.card(), opacity);
                 }
                 None => {
                     scene.text_center_y(

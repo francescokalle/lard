@@ -1110,7 +1110,7 @@ fn image_instance(
             cmd.corners.br * scale,
             cmd.corners.bl * scale,
         ],
-        alpha: [1.0, 0.0, 0.0, 0.0],
+        alpha: [cmd.alpha, 0.0, 0.0, 0.0],
     }
 }
 

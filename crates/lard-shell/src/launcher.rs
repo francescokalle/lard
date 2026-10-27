@@ -38,6 +38,8 @@ enum Row {
 
 pub struct Launcher {
     open: bool,
+    /// Configured feel of the open/close spring (the dismissal is quicker).
+    animation: SpringConfig,
     progress: Spring,
     /// Island the launcher grows out of: screen rectangle and corner radius.
     origin: Option<(Rect, f32)>,
@@ -78,6 +80,7 @@ impl Launcher {
     pub fn new(animation: SpringConfig, reduce_motion: bool) -> Self {
         Self {
             open: false,
+            animation,
             progress: Spring::new(0.0, animation),
             origin: None,
             shape: Rect::ZERO,
@@ -150,7 +153,7 @@ impl Launcher {
         if self.reduce_motion {
             self.progress.snap_to(1.0);
         } else {
-            self.progress.set_target(1.0);
+            self.progress.animate_to(1.0, self.animation);
         }
     }
 
@@ -161,7 +164,12 @@ impl Launcher {
         if self.reduce_motion {
             self.progress.snap_to(0.0);
         } else {
-            self.progress.set_target(0.0);
+            // Dismissals read as faster than presentations: the card leaves in
+            // 80% of the time it took to arrive, with the same shape.
+            let faster = self
+                .animation
+                .with_response(self.animation.response() * 0.8);
+            self.progress.animate_to(0.0, faster);
         }
     }
 
@@ -616,7 +624,7 @@ impl Launcher {
                     let tint = icons::app_color(app, theme);
                     match icons.id_for(app, scene) {
                         Some(id) => {
-                            scene.image(avatar.inset(3.0), id, 8.0);
+                            scene.image_alpha(avatar.inset(3.0), id, 8.0, p);
                         }
                         None => {
                             scene.rect(
