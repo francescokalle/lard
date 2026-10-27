@@ -68,23 +68,12 @@ struct FluidGpu {
     extra: [f32; 4],
 }
 
-/// Half-resolution render target of the screensaver fluid.
-struct FluidTarget {
-    size: (u32, u32),
-    _texture: wgpu::Texture,
-    view: wgpu::TextureView,
-    /// Bind group used by the upscale pass (texture + sampler).
-    bind_group: wgpu::BindGroup,
-}
-
 struct Pipelines {
     rect: wgpu::RenderPipeline,
     text: wgpu::RenderPipeline,
     image: wgpu::RenderPipeline,
-    /// Full-screen fluid into the half-resolution target.
+    /// Full-screen fluid, drawn straight into the output.
     fluid: wgpu::RenderPipeline,
-    /// Half-resolution fluid upscaled into the output.
-    fluid_resolve: wgpu::RenderPipeline,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -239,17 +228,12 @@ pub struct Renderer {
     text_shader: wgpu::ShaderModule,
     image_shader: wgpu::ShaderModule,
     fluid_shader: wgpu::ShaderModule,
-    fluid_resolve_shader: wgpu::ShaderModule,
-    /// Texture + filtering sampler layout, shared by the text atlas, the
-    /// image atlas and the fluid upscale.
+    /// Texture + filtering sampler layout, shared by the text and image atlases.
     atlas_layout: wgpu::BindGroupLayout,
     image_pipeline_layout: wgpu::PipelineLayout,
     fluid_pipeline_layout: wgpu::PipelineLayout,
-    fluid_resolve_layout: wgpu::PipelineLayout,
     fluid_buffer: wgpu::Buffer,
     fluid_bind_group: wgpu::BindGroup,
-    fluid_sampler: wgpu::Sampler,
-    fluid_target: Option<FluidTarget>,
     /// Parameters of the fluid in the frame being prepared.
     fluid_frame: Option<Fluid>,
     pipelines: HashMap<wgpu::TextureFormat, Pipelines>,
@@ -381,21 +365,6 @@ impl Renderer {
                 bind_group_layouts: &[Some(&fluid_layout)],
                 immediate_size: 0,
             });
-        let fluid_resolve_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("fluid-resolve-layout"),
-                bind_group_layouts: &[Some(&atlas_layout)],
-                immediate_size: 0,
-            });
-        let fluid_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("fluid-sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
 
         let rect_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("rect-shader"),
@@ -413,10 +382,6 @@ impl Renderer {
             label: Some("fluid-shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/fluid.wgsl").into()),
         });
-        let fluid_resolve_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("fluid-resolve-shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/fluid_resolve.wgsl").into()),
-        });
 
         let text = TextEngine::new(device, queue, fonts, &atlas_layout);
         let image_atlas = ImageAtlas::new(device, &atlas_layout);
@@ -432,15 +397,11 @@ impl Renderer {
             text_shader,
             image_shader,
             fluid_shader,
-            fluid_resolve_shader,
             atlas_layout: atlas_layout.clone(),
             image_pipeline_layout,
             fluid_pipeline_layout,
-            fluid_resolve_layout,
             fluid_buffer,
             fluid_bind_group,
-            fluid_sampler,
-            fluid_target: None,
             fluid_frame: None,
             pipelines: HashMap::with_capacity(2),
             text,
@@ -474,12 +435,10 @@ impl Renderer {
             &self.text_pipeline_layout,
             &self.image_pipeline_layout,
             &self.fluid_pipeline_layout,
-            &self.fluid_resolve_layout,
             &self.rect_shader,
             &self.text_shader,
             &self.image_shader,
             &self.fluid_shader,
-            &self.fluid_resolve_shader,
         );
         self.pipelines.insert(format, pipelines);
     }
@@ -645,16 +604,9 @@ impl Renderer {
 
         self.fluid_frame = scene.fluid;
         if let Some(fluid) = self.fluid_frame {
-            // The effect is soft by definition, so it is drawn at half the
-            // output and upscaled. Going lower makes the frost visibly chunky
-            // without buying frames: the compositor paces this layer anyway.
-            let scale = 2;
-            let small = (
-                (screen.0 / scale).max(1),
-                (screen.1 / scale).max(1),
-            );
-            self.ensure_fluid_target(small);
-            self.write_fluid_uniform(&fluid, small);
+            // Straight into the output, at full resolution: the screensaver is
+            // mostly this shader, and an upscaled buffer looked visibly soft.
+            self.write_fluid_uniform(&fluid, screen);
         }
         for cmd in &scene.images {
             if !self.image_atlas.has(cmd.id) {
@@ -729,52 +681,6 @@ impl Renderer {
         stats
     }
 
-    /// (Re)create the half-resolution fluid target when the output changes.
-    fn ensure_fluid_target(&mut self, size: (u32, u32)) {
-        if self
-            .fluid_target
-            .as_ref()
-            .is_some_and(|target| target.size == size)
-        {
-            return;
-        }
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("fluid-target"),
-            size: wgpu::Extent3d {
-                width: size.0,
-                height: size.1,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("fluid-resolve-bind-group"),
-            layout: &self.atlas_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.fluid_sampler),
-                },
-            ],
-        });
-        self.fluid_target = Some(FluidTarget {
-            size,
-            _texture: texture,
-            view,
-            bind_group,
-        });
-    }
-
     fn write_fluid_uniform(&self, fluid: &Fluid, screen: (u32, u32)) {
         let deep = fluid.deep.linear_straight();
         let accent = fluid.accent.linear_straight();
@@ -786,7 +692,8 @@ impl Renderer {
             FluidMode::Waves => 3u32,
             FluidMode::Grid => 4u32,
             FluidMode::Dust => 5u32,
-            FluidMode::Empty => 6u32,
+            FluidMode::Gas => 6u32,
+            FluidMode::Empty => 7u32,
         };
         let data = FluidGpu {
             screen: [screen.0 as f32, screen.1 as f32],
@@ -823,48 +730,13 @@ impl Renderer {
                 label: Some("frame-encoder"),
             });
 
-        // Pass 1: the fluid itself, at half resolution.
-        if self.fluid_frame.is_some()
-            && let Some(target) = &self.fluid_target
-        {
-            let attachment = Some(wgpu::RenderPassColorAttachment {
-                view: &target.view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    // Transparent clear: the shader writes premultiplied colour,
-                    // so the alpha of the layer has to survive to the output
-                    // (the flood and the burn-in depend on it).
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    store: wgpu::StoreOp::Store,
-                },
-            });
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("fluid-pass"),
-                color_attachments: &[attachment],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_pipeline(&pipelines.fluid);
-            pass.set_bind_group(0, &self.fluid_bind_group, &[]);
-            pass.draw(0..3, 0..1);
-            draw_calls += 1;
-        }
-
         {
             let color_attachment = Some(wgpu::RenderPassColorAttachment {
                 view,
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.0,
-                        g: 0.0,
-                        b: 0.0,
-                        a: 0.0,
-                    }),
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                     store: wgpu::StoreOp::Store,
                 },
             });
@@ -878,12 +750,11 @@ impl Renderer {
                 multiview_mask: None,
             });
 
-            // Pass 2a: bring the fluid up to the output, before the UI.
-            if self.fluid_frame.is_some()
-                && let Some(target) = &self.fluid_target
-            {
-                pass.set_pipeline(&pipelines.fluid_resolve);
-                pass.set_bind_group(0, &target.bind_group, &[]);
+            // The fluid (screensaver) is the backdrop: drawn first, straight
+            // into the output.
+            if self.fluid_frame.is_some() {
+                pass.set_pipeline(&pipelines.fluid);
+                pass.set_bind_group(0, &self.fluid_bind_group, &[]);
                 pass.draw(0..3, 0..1);
                 draw_calls += 1;
             }
@@ -949,12 +820,10 @@ fn create_pipelines(
     text_layout: &wgpu::PipelineLayout,
     image_layout: &wgpu::PipelineLayout,
     fluid_layout: &wgpu::PipelineLayout,
-    fluid_resolve_layout: &wgpu::PipelineLayout,
     rect_shader: &wgpu::ShaderModule,
     text_shader: &wgpu::ShaderModule,
     image_shader: &wgpu::ShaderModule,
     fluid_shader: &wgpu::ShaderModule,
-    fluid_resolve_shader: &wgpu::ShaderModule,
 ) -> Pipelines {
     let blend = Some(wgpu::BlendState {
         color: wgpu::BlendComponent::OVER,
@@ -963,13 +832,6 @@ fn create_pipelines(
 
     let target = [Some(wgpu::ColorTargetState {
         format,
-        blend,
-        write_mask: wgpu::ColorWrites::ALL,
-    })];
-    // The fluid renders into its own half-resolution texture, whose format is
-    // fixed and independent of the output surface.
-    let fluid_target = [Some(wgpu::ColorTargetState {
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
         blend,
         write_mask: wgpu::ColorWrites::ALL,
     })];
@@ -1072,28 +934,6 @@ fn create_pipelines(
             module: fluid_shader,
             entry_point: Some("fs_main"),
             compilation_options: Default::default(),
-            targets: &fluid_target,
-        }),
-        multiview_mask: None,
-        cache: None,
-    });
-
-    let fluid_resolve = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("fluid-resolve-pipeline"),
-        layout: Some(fluid_resolve_layout),
-        vertex: wgpu::VertexState {
-            module: fluid_resolve_shader,
-            entry_point: Some("vs_main"),
-            compilation_options: Default::default(),
-            buffers: &[],
-        },
-        primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: None,
-        multisample: wgpu::MultisampleState::default(),
-        fragment: Some(wgpu::FragmentState {
-            module: fluid_resolve_shader,
-            entry_point: Some("fs_main"),
-            compilation_options: Default::default(),
             targets: &target,
         }),
         multiview_mask: None,
@@ -1105,7 +945,6 @@ fn create_pipelines(
         text,
         image,
         fluid,
-        fluid_resolve,
     }
 }
 

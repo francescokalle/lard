@@ -447,12 +447,14 @@ pub enum ScreensaverEffect {
     /// Stacked filaments of light, like an oscilloscope wall.
     #[serde(alias = "ripples")]
     Waves,
-    /// A perspective grid running to the horizon.
+    /// Legacy: the grid scene was removed (its configuration still loads).
     #[serde(alias = "prisma")]
     Grid,
     /// A nebula of slow, bright dust.
     #[serde(alias = "simmetria")]
     Dust,
+    /// Volumetric clouds of gas, lit from above.
+    Gas,
     // Legacy names: kept only so existing configuration files still load. They
     // are not offered in the settings and fall back to the closest family.
     Vortex,
@@ -466,8 +468,8 @@ impl ScreensaverEffect {
         Self::Mercury,
         Self::Aurora,
         Self::Waves,
-        Self::Grid,
         Self::Dust,
+        Self::Gas,
     ];
 
     #[must_use]
@@ -479,6 +481,7 @@ impl ScreensaverEffect {
             Self::Waves => "Onde",
             Self::Grid => "Griglia",
             Self::Dust => "Polvere",
+            Self::Gas => "Gas",
             Self::Vortex => "Vortice",
             Self::Storm => "Tempesta",
             Self::Tunnel => "Tunnel",

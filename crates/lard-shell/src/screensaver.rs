@@ -372,8 +372,10 @@ fn fluid_mode(effect: ScreensaverEffect) -> FluidMode {
         ScreensaverEffect::Mercury => FluidMode::Mercury,
         ScreensaverEffect::Aurora => FluidMode::Aurora,
         ScreensaverEffect::Waves => FluidMode::Waves,
-        ScreensaverEffect::Grid => FluidMode::Grid,
+        // The grid scene is gone; old configurations land on the dust.
+        ScreensaverEffect::Grid => FluidMode::Dust,
         ScreensaverEffect::Dust => FluidMode::Dust,
+        ScreensaverEffect::Gas => FluidMode::Gas,
         // Legacy names map to the closest surviving family.
         ScreensaverEffect::Vortex | ScreensaverEffect::Storm => FluidMode::Waves,
         ScreensaverEffect::Tunnel => FluidMode::Grid,

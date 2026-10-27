@@ -84,35 +84,54 @@ fn hue_rotate(color: vec3<f32>, angle: f32) -> vec3<f32> {
     return color * c + cross(k, color) * sin(angle) + k * dot(k, color) * (1.0 - c);
 }
 
-/// Centre of the i-th control point of the liquid chain. The seed rearranges
-/// the whole composition: same liquid, different shot.
-fn node(i: f32, t: f32, seed: f32) -> vec2<f32> {
-    let phase = i * 0.8976 + t * 0.155 + seed * 6.2831 + sin(seed * 13.7 + i) * 0.9;
-    let r = 0.36 + 0.13 * sin(t * 0.19 + i * 1.7 + seed * 4.1);
-    return vec2<f32>(
-        cos(phase) * r * 1.42,
-        sin(phase * 1.21 + t * 0.11 + seed * 2.7) * r * 0.60,
-    );
-}
-
-/// Metaball height field of a chain of capsules: the merged surface is
-/// `field == 1`. Capsules instead of lone blobs are what make the result read
-/// as a flowing liquid, and the potential is smooth everywhere, so the normals
-/// give rounded volumes.
-fn field(p: vec2<f32>, t: f32, seed: f32) -> f32 {
+/// Seven independent metaballs drifting on slow orbits: they merge when they
+/// meet and split when they part, like a lava lamp.
+fn metaballs(p: vec2<f32>, t: f32, seed: f32) -> f32 {
     var sum = 0.0;
-    var a = node(0.0, t, seed);
-    for (var i = 1; i <= 8; i = i + 1) {
-        let b = node(f32(i), t, seed);
-        let radius = 0.048 + 0.014 * sin(t * 0.31 + f32(i) * 2.1 + seed * 5.0);
-        let pa = p - a;
-        let ba = b - a;
-        let along = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-5), 0.0, 1.0);
-        let off = pa - ba * along;
-        sum += (radius * radius) / (dot(off, off) + 0.0011);
-        a = b;
+    for (var i = 0; i < 7; i = i + 1) {
+        let fi = f32(i);
+        let phase = fi * 2.39996 + seed * 6.2831;
+        let orbit = 0.20 + 0.11 * fi;
+        let speed = 0.17 + 0.026 * fi;
+        let center = vec2<f32>(
+            cos(t * speed + phase) * orbit * 1.45,
+            sin(t * speed * 0.83 + phase * 1.7) * orbit * 0.72,
+        );
+        let radius = 0.125 + 0.035 * sin(t * 0.29 + phase * 2.1);
+        let delta = p - center;
+        sum += (radius * radius) / (dot(delta, delta) + 0.0012);
     }
     return sum;
+}
+
+
+/// Gas density: domain-warped fbm, the classical volumetric cloud.
+fn gas_density(p: vec2<f32>, t: f32, seed: f32) -> f32 {
+    let warp = vec2<f32>(
+        sin(p.y * 1.35 + t * 0.17 + seed * 3.0),
+        cos(p.x * 1.15 - t * 0.14 + seed * 2.0),
+    ) * 0.55;
+    return fbm(p * 1.05 + warp + vec2<f32>(t * 0.018, -t * 0.013));
+}
+
+/// Gas: soft clouds lit from above, with a bright scattering rim.
+fn gas_layer(p: vec2<f32>, t: f32, seed: f32, intensity: f32) -> vec4<f32> {
+    let height = gas_density(p, t, seed);
+    let eps = 0.02;
+    let dx = gas_density(p + vec2<f32>(eps, 0.0), t, seed) - height;
+    let dy = gas_density(p + vec2<f32>(0.0, eps), t, seed) - height;
+    let normal = normalize(vec3<f32>(-dx / eps * 0.18, -dy / eps * 0.18, 1.0));
+    let facing = clamp(normal.z, 0.0, 1.0);
+    let key = normalize(vec3<f32>(-0.25, 0.55, 0.80));
+    let lit = 0.30 + 0.70 * clamp(dot(normal, key), 0.0, 1.0);
+    let density = smoothstep(0.30, 0.62, height);
+    let rim = pow(1.0 - facing, 2.5);
+
+    var color = f.accent.rgb * density * lit * 0.85;
+    color += f.light.rgb * rim * density * (0.20 + 0.30 * intensity);
+    color += f.accent.rgb * smoothstep(0.52, 0.95, height) * 0.12;
+    let alpha = clamp(density * 0.85, 0.0, 1.0);
+    return vec4<f32>(color * alpha, alpha);
 }
 
 /// Bright dust: a hash grid of slow particles, used both as a scene and as a
@@ -169,7 +188,6 @@ fn grid_scene(uv: vec2<f32>, t: f32, intensity: f32) -> vec3<f32> {
     let depth_width = clamp(fwidth(depth_line) * 1.2, 0.001, 0.12);
     let lines = (1.0 - smoothstep(0.0, vertical_width, vertical_line))
         + (1.0 - smoothstep(0.0, depth_width, depth_line));
-    // Fade far away and right at the horizon, plus a horizon glow.
     let reach = smoothstep(0.0, 0.18, abs(dy)) * clamp(2.2 - depth * 0.05, 0.0, 1.0);
     let glow = exp(-abs(dy) * 30.0);
     var color = f.accent.rgb * (lines * reach * 0.55 + glow * 0.35);
@@ -194,10 +212,10 @@ fn liquid_layer(
     intensity: f32,
 ) -> vec4<f32> {
     let q = p;
-    let height = field(q, t, seed);
+    let height = metaballs(q, t, seed);
     let eps = 0.02;
-    let dx = field(q + vec2<f32>(eps, 0.0), t, seed) - height;
-    let dy = field(q + vec2<f32>(0.0, eps), t, seed) - height;
+    let dx = metaballs(q + vec2<f32>(eps, 0.0), t, seed) - height;
+    let dy = metaballs(q + vec2<f32>(0.0, eps), t, seed) - height;
     // Antialiasing: the iso-line of the potential is one pixel wide in field
     // units, i.e. `gradient / screen height`. Normalising the threshold by
     // that width keeps the edge clean whatever the slope.
@@ -260,6 +278,9 @@ fn shot(p: vec2<f32>, t: f32, mode: u32, uv: vec2<f32>, seed: f32, intensity: f3
         return vec4<f32>(color, clamp(length(color) * 0.8, 0.0, 0.65));
     }
     if (mode == 6u) {
+        return gas_layer(p, t, seed, intensity);
+    }
+    if (mode == 7u) {
         // Scripted scene: only the room, the shapes come from the script.
         return vec4<f32>(0.0);
     }
@@ -304,26 +325,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     let p = (uv - vec2<f32>(0.5, 0.5)) * vec2<f32>(aspect, 1.0);
 
-    // ---- room: volumetric fog and caustics, all procedural -----------------
-    // A single fbm: two more would triple the fill cost on integrated GPUs,
-    // and the warp only needs to break the regularity.
-    let warp = vec2<f32>(
-        sin(p.y * 1.6 + t * 0.13),
-        cos(p.x * 1.3 - t * 0.11),
-    ) * 0.35;
-    let fog = fbm(p * 1.15 + warp + vec2<f32>(t * 0.013, -t * 0.011));
-    // Cold graphite, lit by the palette accent: a dark room, not a flat black.
-    var room = mix(
-        vec3<f32>(0.008, 0.011, 0.016),
-        vec3<f32>(0.028, 0.040, 0.055) + f.accent.rgb * 0.03,
-        smoothstep(0.28, 0.80, fog),
-    );
-    // Caustics: thin sheets of light where the fog folds.
-    let caustic = pow(smoothstep(0.62, 0.95, fog), 5.0);
-    room += f.accent.rgb * caustic * (0.14 + 0.18 * intensity);
-
-    room *= 1.0 - veil;
-    // Vignette and a darker foot so the clock stays readable.
+    // ---- backdrop -----------------------------------------------------------
+    // Deliberately plain: the scenes are the subject. Just a dark gradient with
+    // a vignette and a slightly darker foot for the clock.
+    var room = mix(f.deep.rgb * 0.55, f.deep.rgb * 1.25, uv.y);
+    room *= 1.0 - veil * 0.55;
     let vig = smoothstep(1.45, 0.10, length(p * vec2<f32>(0.82, 1.0)));
     room *= mix(1.0, 0.55, 1.0 - vig) * mix(1.0, 0.66, smoothstep(0.55, 1.0, uv.y) * 0.9);
 

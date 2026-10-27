@@ -394,8 +394,8 @@ fn main() -> anyhow::Result<()> {
         (lard_core::theme::ScreensaverEffect::Mercury, "screensaver-mercury"),
         (lard_core::theme::ScreensaverEffect::Aurora, "screensaver-aurora"),
         (lard_core::theme::ScreensaverEffect::Waves, "screensaver-onde"),
-        (lard_core::theme::ScreensaverEffect::Grid, "screensaver-griglia"),
         (lard_core::theme::ScreensaverEffect::Dust, "screensaver-polvere"),
+        (lard_core::theme::ScreensaverEffect::Gas, "screensaver-gas"),
     ] {
         let mut preview_config = config.clone();
         preview_config.screensaver.effect = effect;

@@ -29,7 +29,6 @@ mod shader_tests {
             ("text", include_str!("shaders/text.wgsl")),
             ("image", include_str!("shaders/image.wgsl")),
             ("fluid", include_str!("shaders/fluid.wgsl")),
-            ("fluid_resolve", include_str!("shaders/fluid_resolve.wgsl")),
         ] {
             naga::front::wgsl::parse_str(source)
                 .unwrap_or_else(|error| panic!("{name}.wgsl: {}", error.emit_to_string(source)));

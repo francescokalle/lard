@@ -311,7 +311,10 @@ impl ControlCenter {
             }
             Hit::WifiNetwork(index) => {
                 let network = self.network_rows.get(index).cloned()?;
-                if network.secured && !network.saved {
+                // Enterprise networks always go through the dialog: a saved
+                // profile may have been created without an identity (or by
+                // another tool), and the user must be able to fix it.
+                if network.secured && (!network.saved || network.enterprise) && !network.active {
                     self.password_ssid = Some(network.ssid);
                     self.password_enterprise = network.enterprise;
                     self.password_identity.clear();

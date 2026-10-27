@@ -1539,8 +1539,8 @@ impl SettingsView {
         let fonts = &config.font;
         let saver = &config.screensaver;
         let dimmed = !saver.enabled;
-        let row_h = 40.0;
-        let pitch = 44.0;
+        let row_h = 36.0;
+        let pitch = 40.0;
 
         self.toggle_row(
             scene,
@@ -1565,7 +1565,7 @@ impl SettingsView {
         );
 
         // Scenario picker: three rows of three chips.
-        let rect = Rect::new(content.x, y + pitch * 2.0, content.w, 60.0);
+        let rect = Rect::new(content.x, y + pitch * 2.0, content.w, 70.0);
         scene.text(
             "Scenario",
             Point::new(rect.x + 8.0, rect.y + 2.0),
@@ -1585,8 +1585,8 @@ impl SettingsView {
             },
             theme.text_muted.scale_alpha(0.58 * p),
         );
-        let chip_h = 24.0;
-        let gap = 5.0;
+        let chip_h = 22.0;
+        let gap = 4.0;
         let chip_w = ((rect.w * 0.44 - gap * 2.0) / 3.0).clamp(66.0, 118.0);
         let total = chip_w * 3.0 + gap * 2.0;
         for (index, effect) in lard_core::theme::ScreensaverEffect::ALL.iter().enumerate() {
@@ -1645,7 +1645,7 @@ impl SettingsView {
 
         self.toggle_row(
             scene,
-            Rect::new(content.x, y + pitch * 2.0 + 66.0, content.w, row_h),
+            Rect::new(content.x, y + pitch * 2.0 + 74.0, content.w, row_h),
             "Casuale",
             "Scenario e composizione diversi a ogni ingresso",
             saver.random,
@@ -1655,7 +1655,7 @@ impl SettingsView {
         );
         self.toggle_row(
             scene,
-            Rect::new(content.x, y + pitch * 3.0 + 66.0, content.w, row_h),
+            Rect::new(content.x, y + pitch * 3.0 + 74.0, content.w, row_h),
             "Scene da script",
             "Aggiunge le scene scritte in ~/.config/lard/scenes alle frecce",
             saver.script_scenes,
@@ -1665,7 +1665,7 @@ impl SettingsView {
         );
 
         // Where the scripts live, and what was found.
-        let info_y = y + pitch * 4.0 + 66.0;
+        let info_y = y + pitch * 4.0 + 74.0;
         let count = self.script_names.len();
         let info = if count == 0 {
             format!("Nessuna scena in {}", self.script_dir.display())

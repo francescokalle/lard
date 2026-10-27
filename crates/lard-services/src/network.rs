@@ -347,36 +347,63 @@ fn psk_connect(ssid: &str, password: Option<&str>) -> (bool, Option<String>) {
 /// some deployments only accept TTLS/PAP, so a failed attempt is retried with
 /// that inner method before the error reaches the UI.
 fn enterprise_connect(ssid: &str, identity: &str, password: &str) -> (bool, Option<String>) {
-    match enterprise_attempt(ssid, identity, password, "peap", "mschapv2") {
+    // A dedicated profile name: it never collides with the PSK profile the
+    // same SSID may already have (created by another tool), so `modify`
+    // always edits the 802.1X one.
+    let name = enterprise_profile_name(ssid);
+    let existed = profile_exists(&name);
+    match enterprise_attempt(&name, ssid, identity, password, "peap", "mschapv2") {
         Ok(()) => (true, None),
-        Err(peap_error) => match enterprise_attempt(ssid, identity, password, "ttls", "pap") {
-            Ok(()) => (true, None),
-            Err(ttls_error) => (
-                false,
-                Some(if ttls_error.is_empty() {
-                    peap_error
-                } else {
-                    ttls_error
-                }),
-            ),
-        },
+        Err(peap_error) => {
+            match enterprise_attempt(&name, ssid, identity, password, "ttls", "pap") {
+                Ok(()) => (true, None),
+                Err(ttls_error) => {
+                    // Do not leave a half-configured profile behind: it would
+                    // make the network look "saved" and never ask again.
+                    if !existed {
+                        let _ = Command::new("nmcli")
+                            .args(["connection", "delete", &name])
+                            .env("LC_ALL", "C")
+                            .output();
+                    }
+                    (
+                        false,
+                        Some(if ttls_error.is_empty() {
+                            peap_error
+                        } else {
+                            ttls_error
+                        }),
+                    )
+                }
+            }
+        }
     }
 }
 
+/// NetworkManager profile name of the 802.1X connection for an SSID.
+fn enterprise_profile_name(ssid: &str) -> String {
+    format!("lard-eap-{ssid}")
+}
+
+fn profile_exists(name: &str) -> bool {
+    nmcli_output(&["-t", "-f", "NAME", "connection", "show"])
+        .map(|raw| raw.lines().any(|line| line.trim() == name))
+        .unwrap_or(false)
+}
+
 fn enterprise_attempt(
+    name: &str,
     ssid: &str,
     identity: &str,
     password: &str,
     eap: &str,
     phase2: &str,
 ) -> Result<(), String> {
-    let existing = nmcli_output(&["-t", "-f", "NAME", "connection", "show"])
-        .map(|raw| raw.lines().any(|line| line.trim() == ssid))
-        .unwrap_or(false);
+    let existing = profile_exists(name);
 
     let mut command = Command::new("nmcli");
     if existing {
-        command.args(["connection", "modify", "id", ssid]);
+        command.args(["connection", "modify", "id", name]);
     } else {
         command.args([
             "connection",
@@ -384,7 +411,7 @@ fn enterprise_attempt(
             "type",
             "wifi",
             "con-name",
-            ssid,
+            name,
             "ssid",
             ssid,
         ]);
@@ -413,7 +440,7 @@ fn enterprise_attempt(
     }
 
     let up = Command::new("nmcli")
-        .args(["--wait", "20", "connection", "up", "id", ssid])
+        .args(["--wait", "25", "connection", "up", "id", name])
         .env("LC_ALL", "C")
         .output()
         .map_err(|error| format!("nmcli: {error}"))?;

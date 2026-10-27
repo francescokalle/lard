@@ -193,6 +193,7 @@ pub enum FluidMode {
     Waves,
     Grid,
     Dust,
+    Gas,
     /// No liquid body at all: only the procedural room. Used by scripted
     /// scenes, which draw their own shapes.
     Empty,
