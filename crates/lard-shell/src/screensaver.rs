@@ -12,6 +12,7 @@
 //! the same process backwards. The arrow keys switch scenario, so the screen
 //! stays "the usual environment" instead of turning into a slideshow.
 
+use crate::scene_script::SceneScripts;
 use lard_core::theme::ScreensaverEffect;
 use lard_core::{Color, Config, Point, Rect, Size};
 use lard_render::{Fluid, FluidMode, Scene, TextAlign, TextStyle};
@@ -21,6 +22,42 @@ use std::time::Instant;
 const HINT_FULL_SECS: f32 = 6.0;
 /// Seconds a scenario crossfade takes.
 const BLEND_SECS: f32 = 1.4;
+
+/// What the screensaver is showing: one of the built-in looks or a user scene.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SceneKind {
+    Builtin(ScreensaverEffect),
+    Script(usize),
+}
+
+impl SceneKind {
+    fn fluid(self) -> FluidMode {
+        match self {
+            Self::Builtin(effect) => fluid_mode(effect),
+            // Scripted scenes draw their own shapes over the bare room.
+            Self::Script(_) => FluidMode::Empty,
+        }
+    }
+
+    /// Position in the flat list the arrow keys walk through.
+    fn position(self, scripts: usize) -> usize {
+        match self {
+            Self::Builtin(effect) => ScreensaverEffect::ALL
+                .iter()
+                .position(|candidate| *candidate == effect)
+                .unwrap_or(0),
+            Self::Script(index) => ScreensaverEffect::ALL.len() + index.min(scripts),
+        }
+    }
+
+    fn from_position(position: usize, _scripts: usize) -> Self {
+        if position < ScreensaverEffect::ALL.len() {
+            Self::Builtin(ScreensaverEffect::ALL[position])
+        } else {
+            Self::Script(position - ScreensaverEffect::ALL.len())
+        }
+    }
+}
 
 pub struct Screensaver {
     open: bool,
@@ -36,10 +73,10 @@ pub struct Screensaver {
     /// Seconds the scene has been running, for the animation clock.
     elapsed: f32,
     /// Scenario currently on screen.
-    mode: ScreensaverEffect,
+    mode: SceneKind,
     seed: f32,
     /// Scenario being faded in.
-    next_mode: ScreensaverEffect,
+    next_mode: SceneKind,
     next_seed: f32,
     /// 0..1 crossfade between the two scenarios (0 = single shot).
     blend: f32,
@@ -67,9 +104,9 @@ impl Screensaver {
             reveal_at_close: 0.0,
             reveal: 0.0,
             elapsed: 0.0,
-            mode: ScreensaverEffect::Liquid,
+            mode: SceneKind::Builtin(ScreensaverEffect::Liquid),
             seed: 0.0,
-            next_mode: ScreensaverEffect::Liquid,
+            next_mode: SceneKind::Builtin(ScreensaverEffect::Liquid),
             next_seed: 0.0,
             blend: 0.0,
             blend_started: None,
@@ -100,7 +137,11 @@ impl Screensaver {
     }
 
     /// Returns true when the state changed and the caller must act.
-    pub fn open(&mut self, settings: &lard_core::theme::ScreensaverConfig) -> bool {
+    pub fn open(
+        &mut self,
+        settings: &lard_core::theme::ScreensaverConfig,
+        scripts: &[String],
+    ) -> bool {
         if self.open {
             return false;
         }
@@ -113,13 +154,14 @@ impl Screensaver {
         self.blend_started = None;
         self.seed = self.next_random();
         self.next_seed = self.seed;
-        self.mode = if settings.random {
-            {
-                let count = ScreensaverEffect::ALL.len();
-                ScreensaverEffect::ALL[(self.next_random() * count as f32) as usize % count]
-            }
+        let count = ScreensaverEffect::ALL.len() + scripts.len();
+        self.mode = if settings.random && count > 0 {
+            SceneKind::from_position(
+                (self.next_random() * count as f32) as usize % count,
+                scripts.len(),
+            )
         } else {
-            settings.effect
+            SceneKind::Builtin(settings.effect)
         };
         self.next_mode = self.mode;
         true
@@ -137,17 +179,17 @@ impl Screensaver {
 
     /// Move to the previous/next scenario, with a crossfade. `delta` is -1 or
     /// +1; the arrow keys drive it.
-    pub fn cycle(&mut self, delta: i32) {
+    pub fn cycle(&mut self, delta: i32, scripts: &[String]) {
         if !self.open || delta == 0 {
             return;
         }
-        let count = ScreensaverEffect::ALL.len() as i32;
-        let index = ScreensaverEffect::ALL
-            .iter()
-            .position(|effect| *effect == self.next_mode)
-            .unwrap_or(0) as i32;
+        let count = (ScreensaverEffect::ALL.len() + scripts.len()) as i32;
+        if count == 0 {
+            return;
+        }
+        let index = self.next_mode.position(scripts.len()) as i32;
         let next = (index + delta).rem_euclid(count) as usize;
-        self.next_mode = ScreensaverEffect::ALL[next];
+        self.next_mode = SceneKind::from_position(next, scripts.len());
         self.next_seed = self.next_random();
         self.blend = 0.001;
         self.blend_started = Some(Instant::now());
@@ -183,13 +225,14 @@ impl Screensaver {
         self.wants_surface()
     }
 
-    pub fn build(
+    pub fn build_with(
         &mut self,
         scene: &mut Scene,
         size: Size,
         config: &Config,
         clock: &str,
         date: &str,
+        scripts: &mut SceneScripts,
     ) {
         let theme = &config.theme;
         let fonts = &config.font;
@@ -199,8 +242,8 @@ impl Screensaver {
             return;
         }
         scene.fluid(Fluid {
-            mode: fluid_mode(self.mode),
-            mode_b: fluid_mode(self.next_mode),
+            mode: self.mode.fluid(),
+            mode_b: self.next_mode.fluid(),
             time: self.elapsed,
             speed: settings.speed,
             intensity: settings.intensity,
@@ -213,8 +256,34 @@ impl Screensaver {
             // Pure white turns gold into grey fog: keep the highlight warm.
             light: theme.accent.mix(Color::WHITE, 0.55),
             veil: settings.veil,
+            dust: settings.dust,
             fade: 1.0,
         });
+
+        // Scripted scenes paint their own shapes over the bare room. During a
+        // crossfade the outgoing and incoming scenes are both drawn, each with
+        // its share of the fade.
+        let fade = if self.blend_started.is_some() {
+            self.blend
+        } else {
+            0.0
+        };
+        if let SceneKind::Script(index) = self.mode {
+            scripts.draw(
+                index,
+                scene,
+                size,
+                self.elapsed,
+                theme,
+                fonts.size_small,
+                1.0 - fade,
+            );
+        }
+        if fade > 0.0
+            && let SceneKind::Script(index) = self.next_mode
+        {
+            scripts.draw(index, scene, size, self.elapsed, theme, fonts.size_small, fade);
+        }
 
         if !settings.show_clock {
             return;
@@ -292,9 +361,12 @@ fn fluid_mode(effect: ScreensaverEffect) -> FluidMode {
         ScreensaverEffect::Liquid => FluidMode::Liquid,
         ScreensaverEffect::Mercury => FluidMode::Mercury,
         ScreensaverEffect::Aurora => FluidMode::Aurora,
-        ScreensaverEffect::Vortex => FluidMode::Vortex,
-        ScreensaverEffect::Ripples => FluidMode::Ripples,
-        ScreensaverEffect::Storm => FluidMode::Storm,
+        ScreensaverEffect::Waves => FluidMode::Waves,
+        ScreensaverEffect::Grid => FluidMode::Grid,
+        ScreensaverEffect::Dust => FluidMode::Dust,
+        // Legacy names map to the closest surviving family.
+        ScreensaverEffect::Vortex | ScreensaverEffect::Storm => FluidMode::Waves,
+        ScreensaverEffect::Tunnel => FluidMode::Grid,
     }
 }
 
@@ -326,7 +398,7 @@ mod tests {
             ..ScreensaverConfig::default()
         };
         let mut saver = Screensaver::new();
-        assert!(saver.open(&settings));
+        assert!(saver.open(&settings, &[]));
         // The burn-in is timed on the wall clock, not on frames.
         wait(360);
         saver.update(1.0 / 60.0, &settings);
@@ -348,7 +420,7 @@ mod tests {
     fn a_settled_scene_still_requests_frames_while_open() {
         let settings = settings();
         let mut saver = Screensaver::new();
-        saver.open(&settings);
+        saver.open(&settings, &[]);
         wait(60);
         saver.update(1.0 / 60.0, &settings);
         assert!(saver.update(1.0 / 60.0, &settings));
@@ -363,7 +435,7 @@ mod tests {
         let mut saver = Screensaver::new();
         let mut seeds = std::collections::HashSet::new();
         for _ in 0..8 {
-            saver.open(&settings);
+            saver.open(&settings, &[]);
             seeds.insert(saver.seed.to_bits());
             saver.close();
             for _ in 0..50 {
@@ -377,17 +449,17 @@ mod tests {
     fn arrows_move_between_scenarios_in_both_directions() {
         let settings = settings();
         let mut saver = Screensaver::new();
-        saver.open(&settings);
+        saver.open(&settings, &[]);
         let start = saver.next_mode;
-        saver.cycle(1);
+        saver.cycle(1, &[]);
         let forward = saver.next_mode;
         assert_ne!(forward, start);
-        saver.cycle(-1);
+        saver.cycle(-1, &[]);
         assert_eq!(saver.next_mode, start);
-        saver.cycle(-1);
+        saver.cycle(-1, &[]);
         let back = saver.next_mode;
         assert_ne!(back, start);
-        saver.cycle(1);
+        saver.cycle(1, &[]);
         assert_eq!(saver.next_mode, start);
     }
 
@@ -395,9 +467,9 @@ mod tests {
     fn a_scenario_change_is_a_crossfade_not_a_cut() {
         let settings = settings();
         let mut saver = Screensaver::new();
-        saver.open(&settings);
+        saver.open(&settings, &[]);
         let before = saver.mode;
-        saver.cycle(1);
+        saver.cycle(1, &[]);
         while saver.mode == before {
             saver.update(1.0 / 60.0, &settings);
             if saver.blend == 0.0 && saver.mode == before {
@@ -419,8 +491,8 @@ mod tests {
         };
         let mut saver = Screensaver::new();
         for _ in 0..5 {
-            saver.open(&settings);
-            assert_eq!(saver.mode, ScreensaverEffect::Mercury);
+            saver.open(&settings, &[]);
+            assert_eq!(saver.mode, SceneKind::Builtin(ScreensaverEffect::Mercury));
             saver.close();
             saver.update(1.0 / 60.0, &settings);
         }

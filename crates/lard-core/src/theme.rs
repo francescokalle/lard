@@ -444,12 +444,20 @@ pub enum ScreensaverEffect {
     Mercury,
     /// Iridescent fluid ribbons.
     Aurora,
-    /// The same liquid, caught in a slow whirlpool.
+    /// Stacked filaments of light, like an oscilloscope wall.
+    #[serde(alias = "ripples")]
+    Waves,
+    /// A perspective grid running to the horizon.
+    #[serde(alias = "prisma")]
+    Grid,
+    /// A nebula of slow, bright dust.
+    #[serde(alias = "simmetria")]
+    Dust,
+    // Legacy names: kept only so existing configuration files still load. They
+    // are not offered in the settings and fall back to the closest family.
     Vortex,
-    /// A glassy water surface with interfering ripples.
-    Ripples,
-    /// Slow, heavy clouds of liquid.
     Storm,
+    Tunnel,
 }
 
 impl ScreensaverEffect {
@@ -457,9 +465,9 @@ impl ScreensaverEffect {
         Self::Liquid,
         Self::Mercury,
         Self::Aurora,
-        Self::Vortex,
-        Self::Ripples,
-        Self::Storm,
+        Self::Waves,
+        Self::Grid,
+        Self::Dust,
     ];
 
     #[must_use]
@@ -468,9 +476,12 @@ impl ScreensaverEffect {
             Self::Liquid => "Liquido",
             Self::Mercury => "Mercurio",
             Self::Aurora => "Aurora",
+            Self::Waves => "Onde",
+            Self::Grid => "Griglia",
+            Self::Dust => "Polvere",
             Self::Vortex => "Vortice",
-            Self::Ripples => "Onde",
             Self::Storm => "Tempesta",
+            Self::Tunnel => "Tunnel",
         }
     }
 }
@@ -486,6 +497,8 @@ pub struct ScreensaverConfig {
     pub effect: ScreensaverEffect,
     /// Pick a random scenario and composition on every activation.
     pub random: bool,
+    /// Include the scenes written in `~/.config/lard/scenes/*.rhai`.
+    pub script_scenes: bool,
     /// Length of the liquid flood that brings the overlay on screen.
     pub entrance_ms: u32,
     /// Flow speed multiplier.
@@ -494,6 +507,8 @@ pub struct ScreensaverConfig {
     pub intensity: f32,
     /// How strongly the frosted backdrop is darkened, 0..1.
     pub veil: f32,
+    /// Bright dust drifting over every scene, 0..1.
+    pub dust: f32,
     /// Show the clock and the date in the corner.
     pub show_clock: bool,
 }
@@ -505,10 +520,12 @@ impl Default for ScreensaverConfig {
             idle_minutes: 5,
             effect: ScreensaverEffect::Liquid,
             random: true,
+            script_scenes: true,
             entrance_ms: 1300,
             speed: 1.0,
             intensity: 0.65,
             veil: 0.35,
+            dust: 0.35,
             show_clock: true,
         }
     }

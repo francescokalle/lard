@@ -12,6 +12,7 @@ pub mod launcher;
 pub mod niri_config;
 pub mod osd;
 pub mod popover;
+pub mod scene_script;
 pub mod screensaver;
 pub mod settings;
 pub mod toasts;
@@ -39,6 +40,7 @@ use lard_services::{BluetoothDevice, ServiceEvent, WifiNetwork};
 use launcher::{Launcher, LauncherKey};
 use osd::Osd;
 use popover::{Popover, PopoverAction, PopoverData, PopoverKind};
+use scene_script::SceneScripts;
 use screensaver::Screensaver;
 use settings::{SettingsAction, SettingsTab, SettingsView, Step, Toggle};
 use std::collections::HashMap;
@@ -190,6 +192,7 @@ pub struct Shell {
     wallpaper: WallpaperView,
     toasts: ToastStack,
     screensaver: Screensaver,
+    scene_scripts: SceneScripts,
     actions: Vec<ShellAction>,
     dirty: bool,
     reduce_motion: bool,
@@ -305,12 +308,16 @@ impl Shell {
             wallpaper,
             toasts,
             screensaver: Screensaver::new(),
+            scene_scripts: SceneScripts::new(),
             actions: Vec::new(),
             dirty: true,
             reduce_motion,
         };
         shell.apply_niri_theme();
         shell.restore_wallpaper();
+        // Seed the example scenes and index the folder once, off the hot path.
+        shell.scene_scripts.install_examples();
+        shell.scene_scripts.refresh();
         shell
     }
 
@@ -1644,6 +1651,8 @@ impl Shell {
     }
 
     pub fn build_settings(&mut self, scene: &mut Scene, size: Size) {
+        self.settings
+            .set_script_scenes(self.scene_scripts.names(), self.scene_scripts.dir().to_path_buf());
         self.settings.set_outputs(self.niri_outputs.clone());
         self.settings.set_output(self.niri.focused_output.clone());
         self.settings.build(scene, size, &self.config);
@@ -1792,6 +1801,9 @@ impl Shell {
             Toggle::ScreensaverRandom => {
                 self.config.screensaver.random = !self.config.screensaver.random
             }
+            Toggle::ScreensaverScripts => {
+                self.config.screensaver.script_scenes = !self.config.screensaver.script_scenes
+            }
         }
     }
 
@@ -1839,6 +1851,10 @@ impl Shell {
             Step::ScreensaverVeil => {
                 self.config.screensaver.veil =
                     (self.config.screensaver.veil + delta as f32 / 100.0).clamp(0.0, 0.9);
+            }
+            Step::ScreensaverDust => {
+                self.config.screensaver.dust =
+                    (self.config.screensaver.dust + delta as f32 / 100.0).clamp(0.0, 1.0);
             }
             Step::ScreensaverEntrance => {
                 let ms = self.config.screensaver.entrance_ms as i32 + delta;
@@ -1912,7 +1928,13 @@ impl Shell {
 
     /// Show the built-in screensaver. Returns false when it was already open.
     pub fn open_screensaver(&mut self) -> bool {
-        let opened = self.screensaver.open(&self.config.screensaver);
+        self.scene_scripts.refresh();
+        let names = if self.config.screensaver.script_scenes {
+            self.scene_scripts.names()
+        } else {
+            Vec::new()
+        };
+        let opened = self.screensaver.open(&self.config.screensaver, &names);
         if opened {
             self.dirty = true;
         }
@@ -1921,7 +1943,12 @@ impl Shell {
 
     /// Move to the previous/next screensaver scenario (arrow keys).
     pub fn screensaver_cycle(&mut self, delta: i32) {
-        self.screensaver.cycle(delta);
+        let names = if self.config.screensaver.script_scenes {
+            self.scene_scripts.names()
+        } else {
+            Vec::new()
+        };
+        self.screensaver.cycle(delta, &names);
         self.dirty = true;
     }
 
@@ -1935,8 +1962,14 @@ impl Shell {
 
     pub fn build_screensaver(&mut self, scene: &mut Scene, size: Size) {
         let (clock, date) = (self.clock.clone(), self.date_long.clone());
-        self.screensaver
-            .build(scene, size, &self.config, &clock, &date);
+        self.scene_scripts.refresh();
+        let Self {
+            screensaver,
+            scene_scripts,
+            config,
+            ..
+        } = self;
+        screensaver.build_with(scene, size, config, &clock, &date, scene_scripts);
     }
 
     // ---- toasts ----

@@ -4,6 +4,7 @@
 //! persistence so a cancelled edit can be rolled back cleanly.
 
 use crate::ShellKey;
+use crate::truncate_to_width;
 use crate::icons;
 use crate::niri_config::{NiriConfig, NiriSetting, NiriValue};
 use lard_core::anim::{Spring, SpringConfig};
@@ -44,6 +45,8 @@ pub enum Toggle {
     RadiusLink,
     Screensaver,
     ScreensaverClock,
+    /// Include the user-authored Rhai scenes.
+    ScreensaverScripts,
     /// Random composition (and effect) on every activation.
     ScreensaverRandom,
 }
@@ -65,6 +68,7 @@ pub enum Step {
     ScreensaverIntensity,
     ScreensaverVeil,
     ScreensaverEntrance,
+    ScreensaverDust,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -107,6 +111,9 @@ pub struct SettingsView {
     outputs: Vec<lard_services::niri::OutputView>,
     /// The focused output, the one the form edits.
     output: Option<String>,
+    /// Names of the user scenes and their folder.
+    script_names: Vec<String>,
+    script_dir: std::path::PathBuf,
 }
 
 #[derive(Clone, Copy)]
@@ -174,6 +181,8 @@ impl SettingsView {
             niri: None,
             outputs: Vec::new(),
             output: None,
+            script_names: Vec::new(),
+            script_dir: std::path::PathBuf::new(),
         }
     }
 
@@ -261,6 +270,12 @@ impl SettingsView {
     }
 
     /// The outputs of niri, for the resolution picker.
+    /// Names and folder of the user scenes, for the Screen tab.
+    pub fn set_script_scenes(&mut self, names: Vec<String>, dir: std::path::PathBuf) {
+        self.script_names = names;
+        self.script_dir = dir;
+    }
+
     pub fn set_outputs(&mut self, outputs: Vec<lard_services::niri::OutputView>) {
         self.outputs = outputs;
     }
@@ -1518,16 +1533,18 @@ impl SettingsView {
         );
     }
 
-    /// Built-in screensaver: effect, idle time and overlay options.
+    /// Built-in screensaver: scenarios, idle time and overlay options.
     fn build_screen(&mut self, scene: &mut Scene, content: Rect, y: f32, config: &Config, p: f32) {
         let theme = &config.theme;
         let fonts = &config.font;
         let saver = &config.screensaver;
         let dimmed = !saver.enabled;
+        let row_h = 40.0;
+        let pitch = 44.0;
 
         self.toggle_row(
             scene,
-            Rect::new(content.x, y, content.w, 46.0),
+            Rect::new(content.x, y, content.w, row_h),
             "Salvaschermo",
             "Effetto fluido a schermo intero quando la sessione è inattiva",
             saver.enabled,
@@ -1537,7 +1554,7 @@ impl SettingsView {
         );
         self.stepper_row_state(
             scene,
-            Rect::new(content.x, y + 48.0, content.w, 46.0),
+            Rect::new(content.x, y + pitch, content.w, row_h),
             "Dopo",
             &format!("{} min", saver.idle_minutes),
             SettingsAction::Step(Step::ScreensaverIdle, -1),
@@ -1547,11 +1564,11 @@ impl SettingsView {
             dimmed,
         );
 
-        // Scenario picker: two rows of three, the selected one is accented.
-        let rect = Rect::new(content.x, y + 96.0, content.w, 72.0);
+        // Scenario picker: three rows of three chips.
+        let rect = Rect::new(content.x, y + pitch * 2.0, content.w, 60.0);
         scene.text(
             "Scenario",
-            Point::new(rect.x + 8.0, rect.y + 14.0),
+            Point::new(rect.x + 8.0, rect.y + 2.0),
             TextStyle {
                 size: fonts.size_body,
                 weight: fonts.weight_medium,
@@ -1560,28 +1577,24 @@ impl SettingsView {
             theme.text.scale_alpha(p),
         );
         scene.text(
-            if dimmed {
-                "Quale scenario quando \"Casuale\" è spento"
-            } else {
-                "Frecce ← → per cambiarli al volo"
-            },
-            Point::new(rect.x + 8.0, rect.y + 36.0),
+            "Frecce ← → per cambiarli al volo",
+            Point::new(rect.x + 8.0, rect.y + 21.0),
             TextStyle {
                 size: fonts.size_small - 1.0,
                 ..Default::default()
             },
             theme.text_muted.scale_alpha(0.58 * p),
         );
-        let chip_h = 28.0;
-        let gap = 6.0;
-        let chip_w = ((rect.w * 0.44 - gap * 2.0) / 3.0).clamp(70.0, 124.0);
+        let chip_h = 24.0;
+        let gap = 5.0;
+        let chip_w = ((rect.w * 0.44 - gap * 2.0) / 3.0).clamp(66.0, 118.0);
         let total = chip_w * 3.0 + gap * 2.0;
         for (index, effect) in lard_core::theme::ScreensaverEffect::ALL.iter().enumerate() {
             let column = (index % 3) as f32;
             let row = (index / 3) as f32;
             let chip = Rect::new(
                 rect.right() - total + column * (chip_w + gap),
-                rect.y + 4.0 + row * (chip_h + gap),
+                rect.y + row * (chip_h + gap),
                 chip_w,
                 chip_h,
             );
@@ -1632,7 +1645,7 @@ impl SettingsView {
 
         self.toggle_row(
             scene,
-            Rect::new(content.x, y + 174.0, content.w, 46.0),
+            Rect::new(content.x, y + pitch * 2.0 + 66.0, content.w, row_h),
             "Casuale",
             "Scenario e composizione diversi a ogni ingresso",
             saver.random,
@@ -1640,71 +1653,109 @@ impl SettingsView {
             config,
             p,
         );
-        self.stepper_row_state(
-            scene,
-            Rect::new(content.x, y + 220.0, content.w, 46.0),
-            "Vetro",
-            &format!(
-                "{}%",
-                (saver.veil * 100.0).round() as u32
-            ),
-            SettingsAction::Step(Step::ScreensaverVeil, -5),
-            SettingsAction::Step(Step::ScreensaverVeil, 5),
-            config,
-            p,
-            dimmed,
-        );
-        self.stepper_row_state(
-            scene,
-            Rect::new(content.x, y + 266.0, content.w, 46.0),
-            "Ingresso",
-            &format!("{:.1} s", saver.entrance_secs()),
-            SettingsAction::Step(Step::ScreensaverEntrance, -100),
-            SettingsAction::Step(Step::ScreensaverEntrance, 100),
-            config,
-            p,
-            dimmed,
-        );
-        self.stepper_row_state(
-            scene,
-            Rect::new(content.x, y + 312.0, content.w, 46.0),
-            "Velocità",
-            &format!("{:.1}×", saver.speed),
-            SettingsAction::Step(Step::ScreensaverSpeed, -1),
-            SettingsAction::Step(Step::ScreensaverSpeed, 1),
-            config,
-            p,
-            dimmed,
-        );
-        self.stepper_row_state(
-            scene,
-            Rect::new(content.x, y + 358.0, content.w, 46.0),
-            "Intensità",
-            &format!("{}%", (saver.intensity * 100.0).round() as u32),
-            SettingsAction::Step(Step::ScreensaverIntensity, -5),
-            SettingsAction::Step(Step::ScreensaverIntensity, 5),
-            config,
-            p,
-            dimmed,
-        );
         self.toggle_row(
             scene,
-            Rect::new(content.x, y + 404.0, content.w, 46.0),
+            Rect::new(content.x, y + pitch * 3.0 + 66.0, content.w, row_h),
+            "Scene da script",
+            "Aggiunge le scene scritte in ~/.config/lard/scenes alle frecce",
+            saver.script_scenes,
+            SettingsAction::Toggle(Toggle::ScreensaverScripts),
+            config,
+            p,
+        );
+
+        // Where the scripts live, and what was found.
+        let info_y = y + pitch * 4.0 + 66.0;
+        let count = self.script_names.len();
+        let info = if count == 0 {
+            format!("Nessuna scena in {}", self.script_dir.display())
+        } else {
+            format!(
+                "{}: {} ({})",
+                self.script_dir.display(),
+                self.script_names.join(", "),
+                count
+            )
+        };
+        scene.text(
+            &truncate_to_width(&info, fonts.size_small - 1.0, content.w - 16.0),
+            Point::new(content.x + 8.0, info_y + 2.0),
+            TextStyle {
+                size: fonts.size_small - 1.0,
+                ..Default::default()
+            },
+            theme.text_muted.scale_alpha(0.55 * p),
+        );
+
+        let rows = [
+            (
+                Step::ScreensaverVeil,
+                "Vetro",
+                format!("{}%", (saver.veil * 100.0).round() as u32),
+                -5,
+                5,
+            ),
+            (
+                Step::ScreensaverEntrance,
+                "Ingresso",
+                format!("{:.1} s", saver.entrance_secs()),
+                -100,
+                100,
+            ),
+            (
+                Step::ScreensaverSpeed,
+                "Velocità",
+                format!("{:.1}×", saver.speed),
+                -1,
+                1,
+            ),
+            (
+                Step::ScreensaverIntensity,
+                "Intensità",
+                format!("{}%", (saver.intensity * 100.0).round() as u32),
+                -5,
+                5,
+            ),
+            (
+                Step::ScreensaverDust,
+                "Polvere",
+                format!("{}%", (saver.dust * 100.0).round() as u32),
+                -5,
+                5,
+            ),
+        ];
+        for (index, (step, label, value, minus, plus)) in rows.iter().enumerate() {
+            self.stepper_row_state(
+                scene,
+                Rect::new(
+                    content.x,
+                    info_y + 18.0 + index as f32 * pitch,
+                    content.w,
+                    row_h,
+                ),
+                label,
+                value,
+                SettingsAction::Step(*step, *minus),
+                SettingsAction::Step(*step, *plus),
+                config,
+                p,
+                dimmed,
+            );
+        }
+        self.toggle_row(
+            scene,
+            Rect::new(
+                content.x,
+                info_y + 18.0 + rows.len() as f32 * pitch,
+                content.w,
+                row_h,
+            ),
             "Orologio",
             "Ora e data nell'angolo del salvaschermo",
             saver.show_clock,
             SettingsAction::Toggle(Toggle::ScreensaverClock),
             config,
             p,
-        );
-        scene.text(
-            "Il desktop si congela in vetro e le forme bruciano dentro. Frecce per gli scenari.",
-            Point::new(content.x, y + 458.0),
-            TextStyle {
-                size: fonts.size_small - 1.0,
-                ..Default::default()
-            },
-            theme.text_muted.scale_alpha(0.5 * p),
         );
     }
 

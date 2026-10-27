@@ -190,9 +190,12 @@ pub enum FluidMode {
     Liquid,
     Mercury,
     Aurora,
-    Vortex,
-    Ripples,
-    Storm,
+    Waves,
+    Grid,
+    Dust,
+    /// No liquid body at all: only the procedural room. Used by scripted
+    /// scenes, which draw their own shapes.
+    Empty,
 }
 
 /// Full-screen animated background.
@@ -224,6 +227,8 @@ pub struct Fluid {
     pub light: Color,
     /// 0..0.95: how much the procedural room is darkened behind the objects.
     pub veil: f32,
+    /// 0..1: bright dust layered over the scene.
+    pub dust: f32,
     /// 0..1 opacity of the whole effect.
     pub fade: f32,
 }

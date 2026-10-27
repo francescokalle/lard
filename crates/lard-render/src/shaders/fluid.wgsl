@@ -23,6 +23,8 @@ struct Fluid {
     light: vec4<f32>,
     // speed, intensity, fade, veil
     params: vec4<f32>,
+    // dust, unused, unused, unused
+    extra: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> f: Fluid;
@@ -113,38 +115,70 @@ fn field(p: vec2<f32>, t: f32, seed: f32) -> f32 {
     return sum;
 }
 
-/// Rotate the sampling position around the centre, strongest near it: the
-/// liquid chain read through this becomes a whirlpool.
-fn swirl(p: vec2<f32>, t: f32, amount: f32) -> vec2<f32> {
-    if (amount <= 0.0) {
-        return p;
+/// Bright dust: a hash grid of slow particles, used both as a scene and as a
+/// layer over the others.
+fn dust(uv: vec2<f32>, t: f32, scale: f32) -> f32 {
+    let q = uv * scale + vec2<f32>(t * 0.012, -t * 0.009);
+    let cell = floor(q);
+    let local = fract(q) - 0.5;
+    var sum = 0.0;
+    for (var i = 0; i < 9; i = i + 1) {
+        let offset = vec2<f32>(f32(i % 3) - 1.0, f32(i / 3) - 1.0);
+        let key = cell + offset;
+        let seed = hash21(key);
+        if (seed < 0.42) {
+            continue;
+        }
+        let jitter = vec2<f32>(hash21(key + 3.1), hash21(key + 7.7)) - 0.5;
+        let delta = local - offset - jitter * 0.7;
+        let twinkle = 0.35 + 0.65 * (0.5 + 0.5 * sin(t * 1.6 + seed * 40.0));
+        let size = 0.035 + 0.05 * fract(seed * 7.3);
+        sum += smoothstep(size, 0.0, length(delta)) * twinkle;
     }
-    let radius = max(length(p), 0.05);
-    let angle = atan2(p.y, p.x) + amount / (radius + 0.30) + t * 0.10;
-    return vec2<f32>(cos(angle), sin(angle)) * radius;
+    return sum;
 }
 
-/// Reshape the sampling space per scenario. Every look shares the same liquid
-/// field, so the shader stays small: only the space the field is read through
-/// changes.
-fn scene_warp(p: vec2<f32>, t: f32, style: u32) -> vec2<f32> {
-    if (style == 2u) {
-        // Vortex: whirlpool.
-        return swirl(p, t, 0.62);
+/// Waves: nine filaments of light undulating like an oscilloscope wall.
+fn waves_scene(p: vec2<f32>, t: f32, intensity: f32) -> vec3<f32> {
+    var color = vec3<f32>(0.0);
+    for (var i = 0; i < 9; i = i + 1) {
+        let fi = f32(i);
+        let base = -0.44 + fi * 0.11;
+        let amplitude = 0.030 + 0.012 * sin(fi * 1.7 + t * 0.3);
+        let wave = amplitude * sin(p.x * 2.7 + t * (0.65 + fi * 0.11) + fi * 0.9)
+            + 0.010 * sin(p.x * 5.3 - t * 0.9 + fi * 1.3);
+        let d = abs(p.y - (base + wave));
+        let line = exp(-d * d * 14000.0);
+        let weight = 0.35 + 0.12 * sin(fi * 2.1 + t * 0.5);
+        color += (f.accent.rgb * 0.75 + f.light.rgb * 0.25) * line * weight;
     }
-    if (style == 3u) {
-        // Ripples: concentric rings propagating outwards.
-        let radius = length(p);
-        return p * (1.0 + 0.16 * sin(radius * 16.0 - t * 2.6));
-    }
-    if (style == 4u) {
-        // Storm: long, heavy waves.
-        return (p + vec2<f32>(
-            sin(p.y * 1.25 + t * 0.21),
-            cos(p.x * 1.10 - t * 0.19),
-        ) * 0.45) * 0.78;
-    }
-    return p;
+    return color * (0.55 + 0.75 * intensity);
+}
+
+/// Grid: a perspective floor/ceiling grid running to the horizon.
+fn grid_scene(uv: vec2<f32>, t: f32, intensity: f32) -> vec3<f32> {
+    let horizon = 0.54;
+    let dy = uv.y - horizon;
+    let depth = 1.0 / max(abs(dy), 0.008);
+    let lateral = (uv.x - 0.5) * depth;
+    let vertical_line = abs(fract(lateral * 1.6) - 0.5);
+    let depth_line = abs(fract(depth * 1.5 - t * 0.55) - 0.5);
+    let lines = (1.0 - smoothstep(0.0, 0.055, vertical_line))
+        + (1.0 - smoothstep(0.0, 0.030, depth_line));
+    // Fade far away and right at the horizon, plus a horizon glow.
+    let reach = smoothstep(0.0, 0.18, abs(dy)) * clamp(2.2 - depth * 0.05, 0.0, 1.0);
+    let glow = exp(-abs(dy) * 30.0);
+    var color = f.accent.rgb * (lines * reach * 0.55 + glow * 0.35);
+    color += f.light.rgb * glow * 0.45;
+    return color * (0.6 + 0.7 * intensity);
+}
+
+/// Dust: a slow nebula of bright grains with depth.
+fn dust_scene(uv: vec2<f32>, t: f32, intensity: f32) -> vec3<f32> {
+    let near = dust(uv, t, 5.0) * 0.85;
+    let far = dust(uv * 1.9 + vec2<f32>(0.3, 0.1), t * 1.4, 9.0) * 0.45;
+    let haze = smoothstep(0.35, 0.85, sin(uv.x * 1.7 + t * 0.17) * 0.5 + 0.5) * 0.05;
+    return (f.accent.rgb * 0.8 + f.light.rgb * 0.2) * (near + far + haze) * (0.55 + 0.6 * intensity);
 }
 
 /// The liquid body: one metaball field, shaded per scenario.
@@ -155,7 +189,7 @@ fn liquid_layer(
     seed: f32,
     intensity: f32,
 ) -> vec4<f32> {
-    let q = scene_warp(p, t, style);
+    let q = p;
     let height = field(q, t, seed);
     let eps = 0.02;
     let dx = field(q + vec2<f32>(eps, 0.0), t, seed) - height;
@@ -189,14 +223,6 @@ fn liquid_layer(
         color = mix(f.deep.rgb, chrome, inside);
         color += f.accent.rgb * fresnel * 0.45 * inside;
         color += f.light.rgb * specular * (0.60 + 0.80 * intensity) * 1.6;
-    } else if (style == 3u) {
-        // Water: a thin, very reflective sheet with sharp crests.
-        color = f.accent.rgb * (0.04 + 0.14 * facing + 0.20 * fresnel);
-        color += f.light.rgb * specular * (0.70 + 0.90 * intensity) * 1.4;
-    } else if (style == 4u) {
-        // Storm: heavy, soft liquid clouds with broad highlights.
-        color = f.accent.rgb * (0.05 + 0.22 * facing + 0.30 * fresnel);
-        color += f.light.rgb * specular * (0.25 + 0.45 * intensity);
     } else {
         // Liquid and vortex: gold-filled glass. The alpha stays below one on
         // purpose: the room must read through the volumes.
@@ -206,20 +232,32 @@ fn liquid_layer(
     }
 
     let halo = exp(-abs(height - 1.0) * 26.0) * (1.0 - inside);
-    let base = select(0.72, 0.60, style == 3u);
-    let alpha = clamp(inside * base + halo * 0.26, 0.0, 1.0);
+    let alpha = clamp(inside * 0.72 + halo * 0.26, 0.0, 1.0);
     let premul = color * inside + f.accent.rgb * halo * (0.10 + 0.30 * intensity);
     return vec4<f32>(premul, alpha);
 }
 
-/// One scenario: the liquid (in any of its looks) or the aurora.
-fn shot(p: vec2<f32>, t: f32, mode: u32, seed: f32, intensity: f32) -> vec4<f32> {
-
-    if (mode != 2u) {
-        // Everything but the aurora is the same liquid field read through a
-        // different warp (and shaded differently). A single call site keeps
-        // the compiled shader small.
+/// One scenario, as premultiplied colour and coverage of its "body" layer.
+fn shot(p: vec2<f32>, t: f32, mode: u32, uv: vec2<f32>, seed: f32, intensity: f32) -> vec4<f32> {
+    if (mode == 0u || mode == 1u) {
+        // Liquid and its chrome twin: the metaball body.
         return liquid_layer(p, t, mode, seed, intensity);
+    }
+    if (mode == 3u) {
+        let color = waves_scene(p, t, intensity);
+        return vec4<f32>(color, clamp(length(color) * 0.6, 0.0, 0.55));
+    }
+    if (mode == 4u) {
+        let color = grid_scene(uv, t, intensity);
+        return vec4<f32>(color, clamp(length(color) * 0.7, 0.0, 0.6));
+    }
+    if (mode == 5u) {
+        let color = dust_scene(uv, t, intensity);
+        return vec4<f32>(color, clamp(length(color) * 0.8, 0.0, 0.65));
+    }
+    if (mode == 6u) {
+        // Scripted scene: only the room, the shapes come from the script.
+        return vec4<f32>(0.0);
     }
 
     // Aurora: three drifting curtains of light.
@@ -242,8 +280,7 @@ fn shot(p: vec2<f32>, t: f32, mode: u32, seed: f32, intensity: f32) -> vec4<f32>
     }
     let rays = 0.5 + 0.5 * sin(p.x * 26.0 + 3.0 * sin(p.y * 3.0 + t * 0.4) + t * 0.9);
     color *= 0.82 + 0.30 * rays;
-    alpha = clamp(alpha, 0.0, 1.0);
-    return vec4<f32>(color, alpha);
+    return vec4<f32>(color, clamp(alpha, 0.0, 1.0));
 }
 
 @fragment
@@ -287,9 +324,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     room *= mix(1.0, 0.55, 1.0 - vig) * mix(1.0, 0.66, smoothstep(0.55, 1.0, uv.y) * 0.9);
 
     // ---- objects of the current scenario (crossfaded between two shots) ----
-    var body = shot(p, t, f.modes.x, seed_a, intensity);
+    var body = shot(p, t, f.modes.x, uv, seed_a, intensity);
     if (blend > 0.001) {
-        let other = shot(p, t, f.modes.y, seed_b, intensity);
+        let other = shot(p, t, f.modes.y, uv, seed_b, intensity);
         body = mix(body, other, smoothstep(0.0, 1.0, blend));
     }
 
@@ -311,11 +348,14 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     // The room closes in last, under the objects.
     let room_alpha = smoothstep(0.50, 1.0, progress);
-    let grain = hash21(floor(uv * res) + vec2<f32>(t * 7.0, t * 11.0)) - 0.5;
-    body_rgb += grain * 0.0025;
 
 
     let out_alpha = body_alpha + room_alpha * (1.0 - body_alpha);
-    let out_rgb = body_rgb + room * room_alpha * (1.0 - body_alpha);
+    var out_rgb = body_rgb + room * room_alpha * (1.0 - body_alpha);
+
+    // Layer on top of every scene: slow bright dust. Additive, so it reads as
+    // light in the room instead of another object.
+    let dust_layer = dust(uv, t * 0.7, 11.0) * f.extra.x * 0.5;
+    out_rgb += (f.accent.rgb * 0.75 + f.light.rgb * 0.25) * dust_layer * fade;
     return vec4<f32>(max(out_rgb, vec3<f32>(0.0)) * fade, clamp(out_alpha, 0.0, 1.0) * fade);
 }

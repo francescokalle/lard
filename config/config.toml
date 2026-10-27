@@ -141,6 +141,8 @@ idle_minutes = 5
 effect = "liquid"
 # Scenario e composizione diversi a ogni ingresso (le frecce li cambiano al volo).
 random = true
+# Include le scene scritte in ~/.config/lard/scenes/*.rhai.
+script_scenes = true
 # Durata del burn-in in ingresso/uscita (300-2500 ms).
 entrance_ms = 1300
 # Velocità del flusso (0.1-3.0) e intensità di riflessi/alone (0-1).
@@ -148,6 +150,8 @@ speed = 1.0
 intensity = 0.65
 # Quanto viene scurito il desktop sfuocato dietro le forme (0-0.95).
 veil = 0.35
+# Polvere luminosa sopra ogni scena (0-1).
+dust = 0.35
 show_clock = true
 
 [animation]

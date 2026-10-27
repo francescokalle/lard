@@ -64,6 +64,8 @@ struct FluidGpu {
     accent: [f32; 4],
     light: [f32; 4],
     params: [f32; 4],
+    /// dust, unused, unused, unused
+    extra: [f32; 4],
 }
 
 /// Half-resolution render target of the screensaver fluid.
@@ -643,10 +645,10 @@ impl Renderer {
 
         self.fluid_frame = scene.fluid;
         if let Some(fluid) = self.fluid_frame {
-            // The effect is soft by definition, so it is drawn at a third of
-            // the output and upscaled: on an integrated GPU the fill rate is
-            // what decides whether the scene runs at 60 fps or at five.
-            let scale = 3;
+            // The effect is soft by definition, so it is drawn at half the
+            // output and upscaled. Going lower makes the frost visibly chunky
+            // without buying frames: the compositor paces this layer anyway.
+            let scale = 2;
             let small = (
                 (screen.0 / scale).max(1),
                 (screen.1 / scale).max(1),
@@ -781,9 +783,10 @@ impl Renderer {
             FluidMode::Liquid => 0u32,
             FluidMode::Mercury => 1u32,
             FluidMode::Aurora => 2u32,
-            FluidMode::Vortex => 3u32,
-            FluidMode::Ripples => 4u32,
-            FluidMode::Storm => 5u32,
+            FluidMode::Waves => 3u32,
+            FluidMode::Grid => 4u32,
+            FluidMode::Dust => 5u32,
+            FluidMode::Empty => 6u32,
         };
         let data = FluidGpu {
             screen: [screen.0 as f32, screen.1 as f32],
@@ -803,8 +806,9 @@ impl Renderer {
                 fluid.speed.clamp(0.05, 3.0),
                 fluid.intensity.clamp(0.0, 1.0),
                 fluid.fade.clamp(0.0, 1.0),
-                fluid.veil.clamp(0.0, 1.0),
+                fluid.veil.clamp(0.0, 0.95),
             ],
+            extra: [fluid.dust.clamp(0.0, 1.0), 0.0, 0.0, 0.0],
         };
         self.queue
             .write_buffer(&self.fluid_buffer, 0, bytemuck::bytes_of(&data));

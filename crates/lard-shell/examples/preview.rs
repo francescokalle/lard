@@ -393,24 +393,25 @@ fn main() -> anyhow::Result<()> {
         (lard_core::theme::ScreensaverEffect::Liquid, "screensaver-liquid"),
         (lard_core::theme::ScreensaverEffect::Mercury, "screensaver-mercury"),
         (lard_core::theme::ScreensaverEffect::Aurora, "screensaver-aurora"),
-        (lard_core::theme::ScreensaverEffect::Vortex, "screensaver-vortex"),
-        (lard_core::theme::ScreensaverEffect::Ripples, "screensaver-ripples"),
-        (lard_core::theme::ScreensaverEffect::Storm, "screensaver-storm"),
+        (lard_core::theme::ScreensaverEffect::Waves, "screensaver-onde"),
+        (lard_core::theme::ScreensaverEffect::Grid, "screensaver-griglia"),
+        (lard_core::theme::ScreensaverEffect::Dust, "screensaver-polvere"),
     ] {
         let mut preview_config = config.clone();
         preview_config.screensaver.effect = effect;
         preview_config.screensaver.idle_minutes = 5;
         // Deterministic previews: no random composition.
         preview_config.screensaver.random = false;
-        preview_config.screensaver.entrance_ms = 600;
+        // The burn-in runs on the wall clock now, so the preview waits it out
+        // instead of counting frames.
+        preview_config.screensaver.entrance_ms = 300;
         let mut shell = Shell::new(preview_config);
         shell.clock = "21:47".into();
         shell.date = "lun 26 ott".into();
         shell.date_long = "lunedì 26 ottobre".into();
         shell.open_screensaver();
-        for _ in 0..120 {
-            shell.update(1.0 / 60.0);
-        }
+        std::thread::sleep(std::time::Duration::from_millis(420));
+        shell.update(1.0 / 60.0);
         let mut scene = Scene::new();
         shell.build_screensaver(&mut scene, Size::new(1280.0, 800.0));
         save(&gpu, &mut renderer, name, 1280, 800, &scene)?;
