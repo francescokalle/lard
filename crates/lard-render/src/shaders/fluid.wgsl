@@ -107,7 +107,7 @@ fn gas_density(p: vec2<f32>, t: f32, seed: f32) -> f32 {
         sin(p.y * 1.35 + t * 0.17 + seed * 3.0),
         cos(p.x * 1.15 - t * 0.14 + seed * 2.0),
     ) * 0.55;
-    return fbm(p * 1.05 + warp + vec2<f32>(t * 0.018, -t * 0.013));
+    return fbm(p * 1.20 + warp + vec2<f32>(t * 0.018, -t * 0.013));
 }
 
 /// Gas: soft clouds lit from above, with a bright scattering rim.
@@ -120,10 +120,10 @@ fn gas_layer(p: vec2<f32>, t: f32, seed: f32, intensity: f32) -> vec4<f32> {
     let facing = clamp(normal.z, 0.0, 1.0);
     let key = normalize(vec3<f32>(-0.25, 0.55, 0.80));
     let lit = 0.30 + 0.70 * clamp(dot(normal, key), 0.0, 1.0);
-    let density = smoothstep(0.30, 0.62, height);
+    let density = smoothstep(0.40, 0.66, height);
     let rim = pow(1.0 - facing, 2.5);
 
-    var color = f.accent.rgb * density * lit * 0.85;
+    var color = f.accent.rgb * density * lit * 0.95;
     color += f.light.rgb * rim * density * (0.20 + 0.30 * intensity);
     color += f.accent.rgb * smoothstep(0.52, 0.95, height) * 0.12;
     let alpha = clamp(density * 0.85, 0.0, 1.0);
@@ -220,13 +220,15 @@ fn liquid_layer(
     let gradient = max(length(vec2<f32>(dx, dy)) / eps, 0.0005);
     let aa = clamp(gradient / max(f.screen.y, 1.0), 0.0004, 0.08);
     let inside = smoothstep(1.0 - aa, 1.0 + aa, height);
-    let normal = normalize(vec3<f32>(-dx / eps * 0.055, -dy / eps * 0.055, 1.0));
+    // Flattened normal (z bias): the potential peaks at the centre of a blob,
+    // where the slope vanishes and a lateral light would leave a dark dot.
+    let normal = normalize(vec3<f32>(-dx / eps * 0.045, -dy / eps * 0.045, 1.15));
     let facing = clamp(normal.z, 0.0, 1.0);
     let fresnel = pow(1.0 - facing, 2.4);
     // Light slightly above the viewer: a lateral light leaves a dark pit in
     // the middle of every volume (the normal there points straight up).
-    let key = normalize(vec3<f32>(-0.10, 0.12, 0.99));
-    let specular = pow(clamp(dot(normal, key), 0.0, 1.0), 22.0) * inside;
+    let key = normalize(vec3<f32>(-0.06, 0.10, 0.993));
+    let specular = pow(clamp(dot(normal, key), 0.0, 1.0), 16.0) * inside;
 
     var color = vec3<f32>(0.0);
     if (style == 1u) {
@@ -246,11 +248,14 @@ fn liquid_layer(
     } else {
         // Liquid and vortex: gold-filled glass. The alpha stays below one on
         // purpose: the room must read through the volumes.
-        color = f.accent.rgb * (0.10 + 0.30 * facing + 0.52 * fresnel * fresnel);
-        color += f.accent.rgb * fresnel * fresnel * 0.55 * (0.4 + 0.6 * intensity);
+        color = f.accent.rgb * (0.16 + 0.32 * facing + 0.34 * fresnel);
+        color += f.accent.rgb * fresnel * 0.45 * (0.4 + 0.6 * intensity);
         color += f.light.rgb * specular * (0.22 + 0.38 * intensity);
     }
 
+    // Bright core: the potential peaks at the centre of each blob, where the
+    // slope vanishes; without it the middle of every volume reads as a hole.
+    color += f.accent.rgb * smoothstep(1.2, 4.0, height) * (0.16 + 0.12 * intensity);
     let halo = exp(-abs(height - 1.0) * 26.0) * (1.0 - inside);
     let alpha = clamp(inside * 0.72 + halo * 0.26, 0.0, 1.0);
     let premul = color * inside + f.accent.rgb * halo * (0.10 + 0.30 * intensity);
@@ -334,8 +339,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // ---- backdrop -----------------------------------------------------------
     // Deliberately plain: the scenes are the subject. Just a dark gradient with
     // a vignette and a slightly darker foot for the clock.
-    var room = mix(f.deep.rgb * 0.55, f.deep.rgb * 1.25, uv.y);
-    room *= 1.0 - veil * 0.55;
+    var room = mix(f.deep.rgb * 0.85, f.deep.rgb * 1.75, uv.y);
+    room += f.accent.rgb * 0.012;
+    room *= 1.0 - veil * 0.45;
     let vig = smoothstep(1.45, 0.10, length(p * vec2<f32>(0.82, 1.0)));
     room *= mix(1.0, 0.55, 1.0 - vig) * mix(1.0, 0.66, smoothstep(0.55, 1.0, uv.y) * 0.9);
 

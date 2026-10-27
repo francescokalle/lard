@@ -453,7 +453,15 @@ impl Bar {
 
         // ---- right island: cpu/ram, then the grouped Control Center button ----
         let right_marker = scene.marker();
-        self.draw_right_island(scene, Point::ZERO, size, data, config, right_alpha, true);
+        let right = self.draw_right_island(
+            scene,
+            Point::new(0.0, 0.0),
+            size,
+            data,
+            config,
+            right_alpha,
+            true,
+        );
         scene.fade_since(right_marker, right_alpha);
 
         // ---- centre island: clock + date + bell, or the HUD in the same slot ----
@@ -482,7 +490,7 @@ impl Bar {
         } else if osd.is_some() {
             target_w = target_w.max(osd_center_w);
         }
-        let available = (right_x - left_w - gap * 2.0).max(0.0);
+        let available = (right.x - left_w - gap * 2.0).max(0.0);
         let show_date = bar.show_clock && target_w <= available;
         if bar.show_clock && !show_date && !notification {
             target_w =
@@ -497,7 +505,7 @@ impl Bar {
         };
         let home_x = ((size.w - home_w) * 0.5)
             .max(left_w + gap)
-            .min(right_x - gap - home_w);
+            .min(right.x - gap - home_w);
         self.center_home = Rect::new(home_x, 0.0, home_w, size.h);
         if !self.center_initialized {
             self.center_width.snap_to(target_w);
@@ -511,7 +519,7 @@ impl Bar {
         if center_w > 0.0 && center_w <= available {
             let center_x = ((size.w - center_w) * 0.5)
                 .max(left_w + gap)
-                .min(right_x - gap - center_w);
+                .min(right.x - gap - center_w);
             self.islands.push((
                 BarIsland::Center,
                 Rect::new(center_x, 0.0, center_w, size.h),
@@ -677,6 +685,118 @@ impl Bar {
         scene.fade_since(center_marker, center_alpha);
     }
 
+    /// Draw the centre island (clock, date, bell) at `offset`.
+    ///
+    /// Like [`Self::draw_right_island`], used both by the bar and by the panels
+    /// that grow out of the island so their first row keeps the island content.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_center_island(
+        &mut self,
+        scene: &mut Scene,
+        offset: Point,
+        size: Size,
+        data: &BarData<'_>,
+        config: &lard_core::Config,
+        alpha: f32,
+        chrome: bool,
+    ) -> Rect {
+        let theme = &config.theme;
+        let fonts = &config.font;
+        let bar = &config.bar;
+        let frost = if theme.blur && theme.island_blur {
+            theme.frost
+        } else {
+            1.0
+        };
+        let bg = theme
+            .background
+            .with_alpha((theme.background.a * bar.opacity * frost).clamp(0.0, 1.0));
+        let radius = if theme.radius.linked {
+            theme.radius.card()
+        } else {
+            bar.corner_radius
+        }
+        .min(size.h * 0.5);
+        let pad = bar.padding;
+
+        let home = self.center_home;
+        let x = offset.x + home.x;
+        let w = home.w.max(1.0);
+        let top = offset.y;
+        let mid = offset.y + size.h * 0.5;
+        if chrome {
+            self.islands
+                .push((BarIsland::Center, Rect::new(x, top, w, size.h)));
+            scene.panel(Rect::new(x, top, w, size.h), bg.scale_alpha(alpha), radius, None);
+            scene.bordered(
+                Rect::new(x + 0.5, top + 0.5, w - 1.0, size.h - 1.0),
+                Color::TRANSPARENT,
+                radius,
+                1.0,
+                theme.border.scale_alpha(0.7 * alpha),
+            );
+        }
+
+        let clock_w = approx_width(data.clock, fonts.size_small + 1.0) + 6.0;
+        let date_w = approx_width(data.date, fonts.size_small) + 4.0;
+        let clock_x = x + pad;
+        scene.text_center_y(
+            data.clock,
+            clock_x,
+            mid,
+            TextStyle {
+                size: fonts.size_small + 1.0,
+                weight: fonts.weight_semibold,
+                align: TextAlign::Left,
+                max_width: Some(clock_w + 2.0),
+                ..Default::default()
+            },
+            theme.text.scale_alpha(alpha),
+        );
+        let date_x = clock_x + clock_w + 17.0;
+        scene.rect(
+            Rect::new(date_x - 10.0, mid - 1.5, 3.0, 3.0),
+            theme.accent.scale_alpha(0.8 * alpha),
+            1.5,
+        );
+        scene.text_center_y(
+            data.date,
+            date_x,
+            mid,
+            TextStyle {
+                size: fonts.size_small,
+                weight: fonts.weight_regular,
+                align: TextAlign::Left,
+                max_width: Some(date_w + 2.0),
+                ..Default::default()
+            },
+            theme.text_muted.scale_alpha(alpha),
+        );
+        let bell_x = date_x + date_w + 6.0;
+        let bell_color = if data.notification_count > 0 {
+            theme.text.scale_alpha(alpha)
+        } else {
+            theme.text_muted.scale_alpha(0.75 * alpha)
+        };
+        bar_icons::bell(
+            scene,
+            Rect::new(bell_x, mid - 7.0, 13.0, 14.0),
+            bell_color,
+        );
+        if data.notification_count > 0 {
+            scene.rect(
+                Rect::new(bell_x + 9.0, mid - 6.0, 5.0, 5.0),
+                theme.accent.scale_alpha(alpha),
+                2.5,
+            );
+        }
+        if chrome {
+            self.hits
+                .push((Rect::new(bell_x - 4.0, top, 22.0, size.h), BarHit::Notifications));
+        }
+        Rect::new(x, top, w, size.h)
+    }
+
     /// Draw the right island: battery, load meters and the control button.
     ///
     /// `offset` is where the bar surface's top-left corner lands in the target
@@ -690,10 +810,10 @@ impl Bar {
         offset: Point,
         size: Size,
         data: &BarData<'_>,
-        config: &Config,
+        config: &lard_core::Config,
         alpha: f32,
         chrome: bool,
-    ) {
+    ) -> Rect {
         let theme = &config.theme;
         let fonts = &config.font;
         let bar = &config.bar;
@@ -858,8 +978,7 @@ impl Bar {
                 BarHit::ControlCenter,
             ));
         }
-
-
+        Rect::new(right_x, top, right_w, size.h)
     }
 
     pub fn press(&mut self, pos: Point) -> Option<BarPress> {

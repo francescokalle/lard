@@ -544,6 +544,7 @@ impl Shell {
         [
             self.osd.next_deadline(),
             self.toasts.next_deadline(),
+            self.screensaver.next_deadline(),
             self.launcher
                 .idle_deadline(self.config.launcher.idle_timeout_secs),
         ]
@@ -627,7 +628,7 @@ impl Shell {
                         std::thread::sleep(Duration::from_millis(1200));
                     }
                     if std::process::Command::new("awww")
-                        .args(awww_args(&path.to_string_lossy()))
+                        .args(Self::awww_args(&path.to_string_lossy()))
                         .status()
                         .is_ok_and(|status| status.success())
                     {
@@ -1257,7 +1258,7 @@ impl Shell {
         // actually changes the background: `omarchy-theme-apply` only derives
         // the palette and reloads kitty/niri colours.
         if let Some(p) = path.to_str() {
-            let _ = std::process::Command::new("awww").args(awww_args(p)).spawn();
+            let _ = std::process::Command::new("awww").args(Self::awww_args(p)).spawn();
         }
         // waypaper keeps the selection in its own state (`waypaper --restore`
         // brings it back at the next login) and runs the theme hook.
@@ -1388,14 +1389,13 @@ impl Shell {
         // A panel that grows out of an island keeps the island's own row on
         // top: the card reads as the island expanding instead of a new window
         // covering it. Only the right island has a popover with a status row.
-        if self.popover.origin_island() == Some(BarIsland::Right) {
-            self.draw_island_in_popover(scene, size);
+        if let Some(island) = self.popover.origin_island() {
+            self.draw_island_in_popover(scene, size, island);
         }
     }
 
-    /// Redraw the right island (battery, CPU/RAM, control button) inside the
-    /// top row of the panel that is growing out of it.
-    fn draw_island_in_popover(&mut self, scene: &mut Scene, size: Size) {
+    /// Redraw the island a panel grew from inside the panel's top row.
+    fn draw_island_in_popover(&mut self, scene: &mut Scene, size: Size, island: BarIsland) {
         let margin = self.config.bar.margin;
         let bar_size = Size::new((size.w - margin * 2.0).max(1.0), self.config.bar.height);
         let Some(output) = self
@@ -1425,15 +1425,31 @@ impl Shell {
             morph: None,
         };
         if let Some(bar) = self.bars.get_mut(&output) {
-            bar.draw_right_island(
-                scene,
-                Point::new(margin, margin),
-                bar_size,
-                &data,
-                &self.config,
-                1.0,
-                false,
-            );
+            match island {
+                BarIsland::Right => {
+                    bar.draw_right_island(
+                        scene,
+                        Point::new(margin, margin),
+                        bar_size,
+                        &data,
+                        &self.config,
+                        1.0,
+                        false,
+                    );
+                }
+                BarIsland::Center => {
+                    bar.draw_center_island(
+                        scene,
+                        Point::new(margin, margin),
+                        bar_size,
+                        &data,
+                        &self.config,
+                        1.0,
+                        false,
+                    );
+                }
+                BarIsland::Left => {}
+            }
         }
     }
 

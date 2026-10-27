@@ -508,6 +508,16 @@ impl App {
             IpcCommand::BrightnessDown => self.perform(ShellAction::BrightnessStep(-5)),
             IpcCommand::Reload => self.reload_config(),
             IpcCommand::Lock => self.spawn_lockscreen(),
+            IpcCommand::ScreensaverOn => {
+                if let Some(shell) = &mut self.shell {
+                    shell.open_screensaver();
+                }
+            }
+            IpcCommand::ScreensaverOff => {
+                if let Some(shell) = &mut self.shell {
+                    shell.close_screensaver();
+                }
+            }
             IpcCommand::Screensaver => {
                 let open = self.shell.as_ref().is_some_and(Shell::screensaver_open);
                 if let Some(shell) = &mut self.shell {

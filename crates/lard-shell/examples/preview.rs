@@ -410,6 +410,12 @@ fn main() -> anyhow::Result<()> {
         shell.date = "lun 26 ott".into();
         shell.date_long = "lunedì 26 ottobre".into();
         shell.open_screensaver();
+        // The burn-in clock starts on the first drawn frame: build once, then
+        // wait the entrance out and build again for the real preview.
+        {
+            let mut warmup = Scene::new();
+            shell.build_screensaver(&mut warmup, Size::new(1280.0, 800.0));
+        }
         std::thread::sleep(std::time::Duration::from_millis(420));
         shell.update(1.0 / 60.0);
         let mut scene = Scene::new();

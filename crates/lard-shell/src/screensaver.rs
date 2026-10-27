@@ -159,7 +159,10 @@ impl Screensaver {
             self.opened_at = Some(Instant::now() - Duration::from_secs_f32(self.reveal * entrance));
             return true;
         }
-        self.opened_at = Some(Instant::now());
+        // The burn-in starts on the first *drawn* frame: creating the layer
+        // surface and waiting for the compositor can take a second, and the
+        // entrance would play behind an invisible surface.
+        self.opened_at = None;
         self.elapsed = 0.0;
         self.reveal = 0.0;
         self.seed = self.next_random();
@@ -175,6 +178,15 @@ impl Screensaver {
         };
         self.next_mode = self.mode;
         true
+    }
+
+    /// While the scene is on screen a frame is needed even if the compositor
+    /// stops sending frame callbacks (it does for a fully transparent buffer):
+    /// a short timer keeps the burn-in and the animation moving.
+    #[must_use]
+    pub fn next_deadline(&self) -> Option<std::time::Instant> {
+        self.wants_surface()
+            .then(|| std::time::Instant::now() + Duration::from_millis(16))
     }
 
     pub fn close(&mut self) -> bool {
@@ -247,6 +259,10 @@ impl Screensaver {
         let theme = &config.theme;
         let fonts = &config.font;
         let settings = &config.screensaver;
+        // First frame actually on screen: the burn-in clock starts here.
+        if self.open && self.opened_at.is_none() {
+            self.opened_at = Some(std::time::Instant::now());
+        }
         let reveal = self.reveal.clamp(0.0, 1.0);
         if reveal <= 0.001 {
             return;

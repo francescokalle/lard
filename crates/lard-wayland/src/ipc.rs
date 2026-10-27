@@ -36,6 +36,9 @@ pub enum IpcCommand {
     Lock,
     /// Toggle the built-in screensaver (useful from keybinds and for testing).
     Screensaver,
+    /// Open / close the screensaver explicitly (scripting, tests).
+    ScreensaverOn,
+    ScreensaverOff,
     Quit,
 }
 
@@ -69,6 +72,8 @@ impl IpcCommand {
             "reload" => Some(Self::Reload),
             "lock" => Some(Self::Lock),
             "screensaver" | "saver" => Some(Self::Screensaver),
+            "screensaver-on" => Some(Self::ScreensaverOn),
+            "screensaver-off" => Some(Self::ScreensaverOff),
             "quit" => Some(Self::Quit),
             _ => None,
         }
