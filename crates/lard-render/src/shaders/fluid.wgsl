@@ -25,6 +25,8 @@ struct Fluid {
     params: vec4<f32>,
     // dust, unused, unused, unused
     extra: vec4<f32>,
+    // Metaballs of the two shots (7 each): x, y, radius, unused.
+    blobs: array<vec4<f32>, 14>,
 };
 
 @group(0) @binding(0) var<uniform> f: Fluid;
@@ -85,21 +87,15 @@ fn hue_rotate(color: vec3<f32>, angle: f32) -> vec3<f32> {
 }
 
 /// Seven independent metaballs drifting on slow orbits: they merge when they
-/// meet and split when they part, like a lava lamp.
-fn metaballs(p: vec2<f32>, t: f32, seed: f32) -> f32 {
+/// meet and split when they part, like a lava lamp. The geometry is computed
+/// once per frame on the CPU (`renderer::metaballs`), so the shader only does
+/// the distance field: `base` selects the current or the incoming shot.
+fn metaballs(p: vec2<f32>, base: u32) -> f32 {
     var sum = 0.0;
     for (var i = 0; i < 7; i = i + 1) {
-        let fi = f32(i);
-        let phase = fi * 2.39996 + seed * 6.2831;
-        let orbit = 0.20 + 0.11 * fi;
-        let speed = 0.17 + 0.026 * fi;
-        let center = vec2<f32>(
-            cos(t * speed + phase) * orbit * 1.45,
-            sin(t * speed * 0.83 + phase * 1.7) * orbit * 0.72,
-        );
-        let radius = 0.125 + 0.035 * sin(t * 0.29 + phase * 2.1);
-        let delta = p - center;
-        sum += (radius * radius) / (dot(delta, delta) + 0.0012);
+        let blob = f.blobs[base * 7u + u32(i)];
+        let delta = p - blob.xy;
+        sum += (blob.z * blob.z) / (dot(delta, delta) + 0.0012);
     }
     return sum;
 }
@@ -116,11 +112,11 @@ fn gas_density(p: vec2<f32>, t: f32, seed: f32) -> f32 {
 
 /// Gas: soft clouds lit from above, with a bright scattering rim.
 fn gas_layer(p: vec2<f32>, t: f32, seed: f32, intensity: f32) -> vec4<f32> {
+    // One density evaluation per pixel: the shading normal comes from the
+    // screen-space derivatives of the same field.
     let height = gas_density(p, t, seed);
-    let eps = 0.02;
-    let dx = gas_density(p + vec2<f32>(eps, 0.0), t, seed) - height;
-    let dy = gas_density(p + vec2<f32>(0.0, eps), t, seed) - height;
-    let normal = normalize(vec3<f32>(-dx / eps * 0.18, -dy / eps * 0.18, 1.0));
+    let raw = vec2<f32>(dpdx(height), dpdy(height));
+    let normal = normalize(vec3<f32>(-raw * 22.0, 1.0));
     let facing = clamp(normal.z, 0.0, 1.0);
     let key = normalize(vec3<f32>(-0.25, 0.55, 0.80));
     let lit = 0.30 + 0.70 * clamp(dot(normal, key), 0.0, 1.0);
@@ -141,17 +137,19 @@ fn dust(uv: vec2<f32>, t: f32, scale: f32) -> f32 {
     let cell = floor(q);
     let local = fract(q) - 0.5;
     var sum = 0.0;
-    for (var i = 0; i < 9; i = i + 1) {
-        let offset = vec2<f32>(f32(i % 3) - 1.0, f32(i / 3) - 1.0);
+    // Four neighbours are enough: a grain is much smaller than a cell. One
+    // hash gives existence, jitter and twinkle, which keeps the overlay cheap.
+    for (var i = 0; i < 4; i = i + 1) {
+        let offset = vec2<f32>(f32(i % 2), f32(i / 2));
         let key = cell + offset;
         let seed = hash21(key);
         if (seed < 0.42) {
             continue;
         }
-        let jitter = vec2<f32>(hash21(key + 3.1), hash21(key + 7.7)) - 0.5;
-        let delta = local - offset - jitter * 0.7;
+        let jitter = vec2<f32>(fract(seed * 13.7), fract(seed * 7.3)) - 0.5;
+        let delta = local - offset - jitter * 0.6;
         let twinkle = 0.35 + 0.65 * (0.5 + 0.5 * sin(t * 1.6 + seed * 40.0));
-        let size = 0.035 + 0.05 * fract(seed * 7.3);
+        let size = 0.035 + 0.05 * fract(seed * 3.7);
         sum += smoothstep(size, 0.0, length(delta)) * twinkle;
     }
     return sum;
@@ -208,14 +206,14 @@ fn liquid_layer(
     p: vec2<f32>,
     t: f32,
     style: u32,
-    seed: f32,
+    base: u32,
     intensity: f32,
 ) -> vec4<f32> {
     let q = p;
-    let height = metaballs(q, t, seed);
+    let height = metaballs(q, base);
     let eps = 0.02;
-    let dx = metaballs(q + vec2<f32>(eps, 0.0), t, seed) - height;
-    let dy = metaballs(q + vec2<f32>(0.0, eps), t, seed) - height;
+    let dx = metaballs(q + vec2<f32>(eps, 0.0), base) - height;
+    let dy = metaballs(q + vec2<f32>(0.0, eps), base) - height;
     // Antialiasing: the iso-line of the potential is one pixel wide in field
     // units, i.e. `gradient / screen height`. Normalising the threshold by
     // that width keeps the edge clean whatever the slope.
@@ -260,10 +258,18 @@ fn liquid_layer(
 }
 
 /// One scenario, as premultiplied colour and coverage of its "body" layer.
-fn shot(p: vec2<f32>, t: f32, mode: u32, uv: vec2<f32>, seed: f32, intensity: f32) -> vec4<f32> {
+fn shot(
+    p: vec2<f32>,
+    t: f32,
+    mode: u32,
+    uv: vec2<f32>,
+    seed: f32,
+    base: u32,
+    intensity: f32,
+) -> vec4<f32> {
     if (mode == 0u || mode == 1u) {
         // Liquid and its chrome twin: the metaball body.
-        return liquid_layer(p, t, mode, seed, intensity);
+        return liquid_layer(p, t, mode, base, intensity);
     }
     if (mode == 3u) {
         let color = waves_scene(p, t, intensity);
@@ -334,9 +340,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     room *= mix(1.0, 0.55, 1.0 - vig) * mix(1.0, 0.66, smoothstep(0.55, 1.0, uv.y) * 0.9);
 
     // ---- objects of the current scenario (crossfaded between two shots) ----
-    var body = shot(p, t, f.modes.x, uv, seed_a, intensity);
+    var body = shot(p, t, f.modes.x, uv, seed_a, 0u, intensity);
     if (blend > 0.001) {
-        let other = shot(p, t, f.modes.y, uv, seed_b, intensity);
+        let other = shot(p, t, f.modes.y, uv, seed_b, 1u, intensity);
         body = mix(body, other, smoothstep(0.0, 1.0, blend));
     }
 

@@ -6,8 +6,8 @@ indipendente e compare in fondo alla lista degli scenari: con `←`/`→` ci si
 arriva dopo le sei scene integrate, oppure la si può scegliere come
 "predefinita" mettendo `random = false` e usando le frecce.
 
-Le scene da script disegnano sopra la stanza procedurale (nebbia e caustiche)
-e sotto lo strato di polvere luminosa, che resta attivo su tutte le scene.
+Le scene da script disegnano sopra il fondale (un gradiente scuro) e sotto lo
+strato di polvere luminosa, che resta attivo su tutte le scene.
 
 ## Contratto
 

@@ -583,6 +583,20 @@ impl Shell {
         }
     }
 
+    /// Arguments for `awww img`: an explicit plain fade. The daemon's default
+    /// transition is a circular `grow`, which made every wallpaper change look
+    /// like an iris opening over the desktop.
+    fn awww_args(path: &str) -> [&str; 6] {
+        [
+            "img",
+            path,
+            "--transition-type",
+            "fade",
+            "--transition-duration",
+            "0.5",
+        ]
+    }
+
     /// Apply the wallpaper chosen in the carousel again at start-up. The
     /// awww daemon may still be starting, so the wallpaper is set a few
     /// times before giving up.
@@ -603,7 +617,7 @@ impl Shell {
                         std::thread::sleep(Duration::from_millis(1200));
                     }
                     if std::process::Command::new("awww")
-                        .args(["img", &path.to_string_lossy()])
+                        .args(awww_args(&path.to_string_lossy()))
                         .status()
                         .is_ok_and(|status| status.success())
                     {
@@ -1233,7 +1247,7 @@ impl Shell {
         // actually changes the background: `omarchy-theme-apply` only derives
         // the palette and reloads kitty/niri colours.
         if let Some(p) = path.to_str() {
-            let _ = std::process::Command::new("awww").args(["img", p]).spawn();
+            let _ = std::process::Command::new("awww").args(awww_args(p)).spawn();
         }
         // waypaper keeps the selection in its own state (`waypaper --restore`
         // brings it back at the next login) and runs the theme hook.

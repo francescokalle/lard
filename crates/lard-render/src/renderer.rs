@@ -66,6 +66,9 @@ struct FluidGpu {
     params: [f32; 4],
     /// dust, unused, unused, unused
     extra: [f32; 4],
+    /// Metaball geometry, precomputed on the CPU: 7 blobs per shot, two shots
+    /// (the current one and the one being faded in). x, y, radius, unused.
+    blobs: [[f32; 4]; 14],
 }
 
 struct Pipelines {
@@ -716,6 +719,13 @@ impl Renderer {
                 fluid.veil.clamp(0.0, 0.95),
             ],
             extra: [fluid.dust.clamp(0.0, 1.0), 0.0, 0.0, 0.0],
+            blobs: {
+                let mut blobs = [[0.0f32; 4]; 14];
+                let time = fluid.time * fluid.speed.clamp(0.05, 3.0);
+                blobs[..7].copy_from_slice(&metaballs(time, fluid.seed_a));
+                blobs[7..].copy_from_slice(&metaballs(time, fluid.seed_b));
+                blobs
+            },
         };
         self.queue
             .write_buffer(&self.fluid_buffer, 0, bytemuck::bytes_of(&data));
@@ -972,4 +982,24 @@ mod tests {
         let (x, y) = run_origin(Point::new(10.0, 10.0), 1.5, TextAlign::Left, None, 10.0);
         assert_eq!((x, y), (15.0, 15.0));
     }
+}
+
+/// Positions and radii of the seven metaballs for a given time and seed.
+///
+/// The shader used to compute these per pixel (twenty-one sine/cosine pairs
+/// per fragment); they only depend on uniforms, so they are computed once per
+/// frame here instead.
+fn metaballs(time: f32, seed: f32) -> [[f32; 4]; 7] {
+    let mut blobs = [[0.0f32; 4]; 7];
+    for (i, slot) in blobs.iter_mut().enumerate() {
+        let fi = i as f32;
+        let phase = fi * 2.39996 + seed * 6.2831;
+        let orbit = 0.20 + 0.11 * fi;
+        let speed = 0.17 + 0.026 * fi;
+        let x = (time * speed + phase).cos() * orbit * 1.45;
+        let y = (time * speed * 0.83 + phase * 1.7).sin() * orbit * 0.72;
+        let radius = 0.125 + 0.035 * (time * 0.29 + phase * 2.1).sin();
+        *slot = [x, y, radius, 0.0];
+    }
+    blobs
 }
