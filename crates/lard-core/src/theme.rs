@@ -334,6 +334,17 @@ impl Default for OsdConfig {
     }
 }
 
+/// Background of the lock screen and the greeter.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LockBackground {
+    /// The palette gradient (`top` / `bottom` / `accent_glow`).
+    Gradient,
+    /// The desktop wallpaper, heavily scaled and darkened.
+    #[default]
+    Wallpaper,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToastPosition {
@@ -393,6 +404,10 @@ pub struct GreeterWallpaper {
     pub top: Color,
     pub bottom: Color,
     pub accent_glow: Color,
+    /// What the lock screen shows behind the card.
+    pub background: LockBackground,
+    /// 0..0.95: how much the wallpaper is darkened behind the card.
+    pub dim: f32,
 }
 
 impl Default for GreeterWallpaper {
@@ -401,6 +416,8 @@ impl Default for GreeterWallpaper {
             top: Color::from_hex("#141008").expect("valid default"),
             bottom: Color::from_hex("#2A2113").expect("valid default"),
             accent_glow: Color::from_hex("#8C6A2A").expect("valid default"),
+            background: LockBackground::Wallpaper,
+            dim: 0.45,
         }
     }
 }
@@ -444,13 +461,13 @@ pub enum ScreensaverEffect {
     Mercury,
     /// Iridescent fluid ribbons.
     Aurora,
-    /// Stacked filaments of light, like an oscilloscope wall.
+    /// Legacy: stacked filaments (removed; configuration still loads).
     #[serde(alias = "ripples")]
     Waves,
     /// Legacy: the grid scene was removed (its configuration still loads).
     #[serde(alias = "prisma")]
     Grid,
-    /// A nebula of slow, bright dust.
+    /// Legacy: the dust scene (removed; configuration still loads).
     #[serde(alias = "simmetria")]
     Dust,
     /// Volumetric clouds of gas, lit from above.
@@ -463,14 +480,7 @@ pub enum ScreensaverEffect {
 }
 
 impl ScreensaverEffect {
-    pub const ALL: [Self; 6] = [
-        Self::Liquid,
-        Self::Mercury,
-        Self::Aurora,
-        Self::Waves,
-        Self::Dust,
-        Self::Gas,
-    ];
+    pub const ALL: [Self; 4] = [Self::Liquid, Self::Mercury, Self::Aurora, Self::Gas];
 
     #[must_use]
     pub const fn label(self) -> &'static str {

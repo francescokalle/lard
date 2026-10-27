@@ -1807,6 +1807,14 @@ impl Shell {
             SettingsAction::SaveNiri => {
                 self.settings_save_niri();
             }
+            SettingsAction::NextLockBackground => {
+                use lard_core::theme::LockBackground;
+                self.config.greeter.wallpaper.background =
+                    match self.config.greeter.wallpaper.background {
+                        LockBackground::Gradient => LockBackground::Wallpaper,
+                        LockBackground::Wallpaper => LockBackground::Gradient,
+                    };
+            }
             SettingsAction::ScreensaverEffect(index) => {
                 if let Some(effect) = lard_core::theme::ScreensaverEffect::ALL.get(index) {
                     self.config.screensaver.effect = *effect;
@@ -1941,6 +1949,10 @@ impl Shell {
             Step::ScreensaverVeil => {
                 self.config.screensaver.veil =
                     (self.config.screensaver.veil + delta as f32 / 100.0).clamp(0.0, 0.9);
+            }
+            Step::LockDim => {
+                self.config.greeter.wallpaper.dim =
+                    (self.config.greeter.wallpaper.dim + delta as f32 / 100.0).clamp(0.0, 0.9);
             }
             Step::ScreensaverDust => {
                 self.config.screensaver.dust =

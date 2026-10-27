@@ -128,6 +128,11 @@ default_session        = "niri"
 clock_format           = "%H:%M"
 
 [greeter.wallpaper]
+# Cosa mostrare dietro la card di accesso: "wallpaper" (lo sfondo del desktop,
+# scurito) oppure "gradient" (la palette qui sotto).
+background = "wallpaper"
+# Quanto scurire il wallpaper (0-0.95).
+dim = 0.45
 top         = "#141008"
 bottom      = "#2A2113"
 accent_glow = "#8C6A2A"

@@ -3,7 +3,7 @@
 Le scene scritte dall'utente stanno in `~/.config/lard/scenes/*.rhai` (la
 cartella viene creata al primo avvio con due esempi). Ogni file è una scena
 indipendente e compare in fondo alla lista degli scenari: con `←`/`→` ci si
-arriva dopo le sei scene integrate, oppure la si può scegliere come
+arriva dopo le quattro scene integrate, oppure la si può scegliere come
 "predefinita" mettendo `random = false` e usando le frecce.
 
 Le scene da script disegnano sopra il fondale (un gradiente scuro) e sotto lo

@@ -231,8 +231,9 @@ fn main() -> anyhow::Result<()> {
         ("settings-dock", 224.0),
         ("settings-effects", 266.0),
         ("settings-screen", 308.0),
-        ("settings-niri", 350.0),
-        ("settings-info", 392.0),
+        ("settings-lock", 350.0),
+        ("settings-niri", 392.0),
+        ("settings-info", 434.0),
     ] {
         shell.settings_press(Point::new(300.0, y));
         for _ in 0..4 {
@@ -393,8 +394,6 @@ fn main() -> anyhow::Result<()> {
         (lard_core::theme::ScreensaverEffect::Liquid, "screensaver-liquid"),
         (lard_core::theme::ScreensaverEffect::Mercury, "screensaver-mercury"),
         (lard_core::theme::ScreensaverEffect::Aurora, "screensaver-aurora"),
-        (lard_core::theme::ScreensaverEffect::Waves, "screensaver-onde"),
-        (lard_core::theme::ScreensaverEffect::Dust, "screensaver-polvere"),
         (lard_core::theme::ScreensaverEffect::Gas, "screensaver-gas"),
     ] {
         let mut preview_config = config.clone();

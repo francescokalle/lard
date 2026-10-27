@@ -296,8 +296,13 @@ pub fn run(mode: Mode) -> Result<()> {
         Mode::Greeter { preview: false } => AuthMode::Greeter,
         Mode::Shell => AuthMode::Preview,
     };
-    let greeter = (mode != Mode::Shell)
-        .then(|| GreeterView::new(auth_mode, &config.greeter, config.animation.reduce_motion));
+    let greeter = (mode != Mode::Shell).then(|| {
+        let mut greeter = GreeterView::new(auth_mode, &config.greeter, config.animation.reduce_motion);
+        // The lock screen and the greeter show the desktop wallpaper behind the
+        // card, darkened by `greeter.wallpaper.dim`.
+        greeter.load_wallpaper(std::path::Path::new(&config.theme.wallpaper));
+        greeter
+    });
 
     let (service_tx, service_rx) = calloop::channel::channel();
     if shell.is_some() {

@@ -17,6 +17,7 @@ anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 chrono.workspace = true
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 calloop.workspace = true
 
 [dev-dependencies]

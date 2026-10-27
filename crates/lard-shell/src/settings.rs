@@ -21,6 +21,8 @@ pub enum SettingsTab {
     Effects,
     /// Screensaver effect and idle timeout.
     Screen,
+    /// Lock screen background.
+    Lock,
     /// Edit the niri configuration files.
     Niri,
     Info,
@@ -69,6 +71,7 @@ pub enum Step {
     ScreensaverVeil,
     ScreensaverEntrance,
     ScreensaverDust,
+    LockDim,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -93,6 +96,8 @@ pub enum SettingsAction {
     NiriOutputScaleNext,
     /// Choose the screensaver effect by index into `ScreensaverEffect::ALL`.
     ScreensaverEffect(usize),
+    /// Cycle the lock screen background (gradient / wallpaper).
+    NextLockBackground,
     /// Save the edited niri configuration file and reload it.
     SaveNiri,
 }
@@ -442,6 +447,7 @@ impl SettingsView {
             (SettingsTab::Dock, icons::DOCK, "Dock"),
             (SettingsTab::Effects, icons::BLUR, "Effetti"),
             (SettingsTab::Screen, icons::SCREEN, "Schermo"),
+            (SettingsTab::Lock, icons::LOCK, "Blocco"),
             (SettingsTab::Niri, icons::CODE, "Niri"),
             (SettingsTab::Info, icons::INFO, "Info"),
         ];
@@ -586,6 +592,7 @@ impl SettingsView {
             SettingsTab::Dock => "Dock",
             SettingsTab::Effects => "Effetti",
             SettingsTab::Screen => "Schermo",
+            SettingsTab::Lock => "Blocco",
             SettingsTab::Niri => "Config di niri",
             SettingsTab::Info => "Informazioni",
         };
@@ -606,6 +613,7 @@ impl SettingsView {
             SettingsTab::Dock => self.build_dock(scene, content, y, config, p),
             SettingsTab::Effects => self.build_effects(scene, content, y, config, p),
             SettingsTab::Screen => self.build_screen(scene, content, y, config, p),
+            SettingsTab::Lock => self.build_lock(scene, content, y, config, p),
             SettingsTab::Niri => self.build_niri(scene, content, y, config, p),
             SettingsTab::Info => self.build_info(scene, content, y, config, p),
         }
@@ -1756,6 +1764,84 @@ impl SettingsView {
             SettingsAction::Toggle(Toggle::ScreensaverClock),
             config,
             p,
+        );
+    }
+
+    /// Lock screen / greeter background.
+    fn build_lock(&mut self, scene: &mut Scene, content: Rect, y: f32, config: &Config, p: f32) {
+        let theme = &config.theme;
+        let fonts = &config.font;
+        let wallpaper = &config.greeter.wallpaper;
+        let row_h = 40.0;
+        let pitch = 44.0;
+
+        let current = match wallpaper.background {
+            lard_core::theme::LockBackground::Gradient => "Gradiente",
+            lard_core::theme::LockBackground::Wallpaper => "Sfondo del desktop",
+        };
+        let rect = Rect::new(content.x, y, content.w, row_h + 8.0);
+        scene.text(
+            "Sfondo della schermata di blocco",
+            Point::new(rect.x + 8.0, rect.y + 2.0),
+            TextStyle {
+                size: fonts.size_body,
+                weight: fonts.weight_medium,
+                ..Default::default()
+            },
+            theme.text.scale_alpha(p),
+        );
+        scene.text(
+            "Il wallpaper scelto, scurito, oppure il gradiente della palette",
+            Point::new(rect.x + 8.0, rect.y + 21.0),
+            TextStyle {
+                size: fonts.size_small - 1.0,
+                ..Default::default()
+            },
+            theme.text_muted.scale_alpha(0.58 * p),
+        );
+        let button = Rect::new(rect.right() - 186.0, rect.y + 5.0, 186.0, 30.0);
+        let hovered = self.cursor.is_some_and(|c| button.contains(c));
+        scene.rect(
+            button,
+            theme
+                .surface_hover
+                .scale_alpha((if hovered { 0.9 } else { 0.5 }) * p),
+            9.0,
+        );
+        scene.text_center_y(
+            current,
+            button.x,
+            button.center().y,
+            TextStyle {
+                size: fonts.size_small,
+                align: TextAlign::Center,
+                max_width: Some(button.w),
+                ..Default::default()
+            },
+            theme.text.scale_alpha(0.9 * p),
+        );
+        self.hits
+            .push((button, SettingsAction::NextLockBackground));
+
+        self.stepper_row_state(
+            scene,
+            Rect::new(content.x, y + pitch + 12.0, content.w, row_h),
+            "Velo",
+            &format!("{}%", (wallpaper.dim * 100.0).round() as u32),
+            SettingsAction::Step(Step::LockDim, -5),
+            SettingsAction::Step(Step::LockDim, 5),
+            config,
+            p,
+            false,
+        );
+        scene.text(
+            "Quanto il wallpaper viene scurito dietro la card di accesso.",
+            Point::new(content.x + 8.0, y + pitch * 2.0 + 18.0),
+            TextStyle {
+                size: fonts.size_small - 1.0,
+                ..Default::default()
+            },
+            theme.text_muted.scale_alpha(0.5 * p),
         );
     }
 

@@ -174,6 +174,9 @@ impl Config {
                 return invalid(&format!("{name} spring parameters are invalid"));
             }
         }
+        if !(0.0..=0.95).contains(&self.greeter.wallpaper.dim) {
+            return invalid("greeter.wallpaper.dim must be in 0..=0.95");
+        }
         if !self.greeter.pam_service.is_empty() {
             let valid = self.greeter.pam_service.len() <= 64
                 && self

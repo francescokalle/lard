@@ -79,9 +79,27 @@ pub struct GreeterView {
     cursor: Option<Point>,
     clock: String,
     date: String,
+    /// Wallpaper shown behind the card: id in the image atlas + RGBA thumbnail.
+    wallpaper: Option<(u32, Vec<u8>)>,
 }
 
 impl GreeterView {
+    /// Decode the desktop wallpaper for the lock screen backdrop. Done once, at
+    /// start-up: the lock surface must not block on a 4K JPEG later.
+    pub fn load_wallpaper(&mut self, path: &std::path::Path) {
+        const ID: u32 = 0x4C4F_434B;
+        // The image atlas cell is 128x128: anything larger would be cut and
+        // its rows misread (visible as horizontal stripes).
+        const W: u32 = 128;
+        const H: u32 = 72;
+        let Ok(image) = image::open(path) else {
+            self.wallpaper = None;
+            return;
+        };
+        let small = image.resize_exact(W, H, image::imageops::FilterType::Triangle);
+        self.wallpaper = Some((ID, small.to_rgba8().into_raw()));
+    }
+
     pub fn new(mode: AuthMode, config: &GreeterConfig, reduce_motion: bool) -> Self {
         let users = match mode {
             AuthMode::Lock => vec![current_user()],
@@ -128,6 +146,7 @@ impl GreeterView {
             cursor: None,
             clock: String::new(),
             date: String::new(),
+            wallpaper: None,
         }
     }
 
@@ -422,12 +441,30 @@ impl GreeterView {
         // A session-lock surface must stay opaque until unlock; only the card
         // fades. Exposing the desktop before `unlock()` would leak content.
         let background_alpha = if lock { 1.0 } else { fade };
-        scene.vertical_gradient(
-            Rect::new(0.0, 0.0, size.w, size.h),
-            wallpaper.top.with_alpha(background_alpha),
-            wallpaper.bottom.with_alpha(background_alpha),
-            48,
-        );
+        let mut drew_wallpaper = false;
+        if wallpaper.background == lard_core::theme::LockBackground::Wallpaper
+            && let Some((id, rgba)) = &self.wallpaper
+        {
+            scene.upload_image(*id, 128, 72, rgba.clone());
+            scene.image(Rect::new(0.0, 0.0, size.w, size.h), *id, 0.0);
+            scene.rect(
+                Rect::new(0.0, 0.0, size.w, size.h),
+                theme
+                    .background
+                    .with_alpha(1.0)
+                    .scale_alpha((wallpaper.dim * background_alpha).clamp(0.0, 1.0)),
+                0.0,
+            );
+            drew_wallpaper = true;
+        }
+        if !drew_wallpaper {
+            scene.vertical_gradient(
+                Rect::new(0.0, 0.0, size.w, size.h),
+                wallpaper.top.with_alpha(background_alpha),
+                wallpaper.bottom.with_alpha(background_alpha),
+                48,
+            );
+        }
         scene.glow(
             Rect::new(-size.w * 0.1, size.h * 0.35, size.w * 0.7, size.h * 0.8),
             wallpaper.accent_glow.with_alpha(0.22 * background_alpha),

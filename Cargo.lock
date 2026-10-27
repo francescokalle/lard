@@ -893,6 +893,7 @@ dependencies = [
  "anyhow",
  "calloop",
  "chrono",
+ "image",
  "lard-core",
  "lard-render",
  "lard-services",
