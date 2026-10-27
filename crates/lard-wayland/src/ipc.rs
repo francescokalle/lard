@@ -24,6 +24,10 @@ pub enum IpcCommand {
     Wifi,
     Bluetooth,
     PowerMenu,
+    /// Battery statistics panel (right island, battery item).
+    Battery,
+    /// Mini task manager (right island, CPU/RAM items).
+    System,
     /// Settings center; the payload selects the tab to open.
     Settings(Option<SettingsTab>),
     Wallpapers,
@@ -50,6 +54,8 @@ impl IpcCommand {
             "control-center" | "toggle-control-center" => Some(Self::ControlCenter),
             "controls" | "control-center-popover" => Some(Self::Controls),
             "notifications" | "notification-center" => Some(Self::Notifications),
+            "battery" | "battery-panel" => Some(Self::Battery),
+            "system" | "task-manager" => Some(Self::System),
             "wifi" | "wifi-menu" => Some(Self::Wifi),
             "bluetooth" | "bluetooth-menu" => Some(Self::Bluetooth),
             "power" | "power-menu" => Some(Self::PowerMenu),

@@ -36,6 +36,8 @@ pub enum PopoverAction {
     ToggleDnd,
     ExpandWifi,
     ExpandBluetooth,
+    /// Grow the card into the mini task manager.
+    ExpandSystem,
     OpenPowerMenu,
     Power(PowerAction),
     SetVolume(u8),
@@ -60,7 +62,7 @@ pub struct PopoverData<'a> {
     pub bluetooth: BluetoothState,
     pub wifi_enabled: bool,
     pub battery: BatteryState,
-    pub system: SystemStats,
+    pub system: &'a SystemStats,
     pub dnd: bool,
     pub active_toasts: usize,
     pub volume: u8,
@@ -155,11 +157,11 @@ impl Popover {
             PopoverKind::Clock => Size::new(288.0, 292.0),
             PopoverKind::Network => Size::new(268.0, 142.0),
             PopoverKind::Bluetooth => Size::new(240.0, 134.0),
-            PopoverKind::Battery => Size::new(240.0, 178.0),
+            PopoverKind::Battery => Size::new(304.0, 282.0),
             PopoverKind::Notifications => Size::new(268.0, 118.0),
-            PopoverKind::System => Size::new(268.0, 132.0),
+            PopoverKind::System => Size::new(384.0, 436.0),
             PopoverKind::Power => Size::new(248.0, 244.0),
-            PopoverKind::ControlCenter => Size::new(360.0, 416.0),
+            PopoverKind::ControlCenter => Size::new(360.0, 470.0),
         }
     }
 
@@ -254,6 +256,7 @@ impl Popover {
             ControlPage::Wifi | ControlPage::Bluetooth => {
                 Size::new(EXPANDED_WIDTH, EXPANDED_HEIGHT)
             }
+            ControlPage::System => Size::new(EXPANDED_WIDTH, 512.0),
             ControlPage::Home | ControlPage::Power => self.size,
         }
     }
@@ -262,7 +265,10 @@ impl Popover {
     /// same surface and the same rounded rectangle; only its geometry and
     /// content change, so there is no second side panel to animate in.
     pub fn expand_page(&mut self, page: ControlPage) {
-        if !matches!(page, ControlPage::Wifi | ControlPage::Bluetooth) {
+        if !matches!(
+            page,
+            ControlPage::Wifi | ControlPage::Bluetooth | ControlPage::System
+        ) {
             return;
         }
         self.expanded = Some(page);
@@ -926,71 +932,110 @@ impl Popover {
     ) {
         let theme = &config.theme;
         let fonts = &config.font;
+        let battery = data.battery;
         self.title(scene, panel, "Batteria", config, p);
-        let text = if data.battery.present {
-            if data.battery.charging {
-                format!("{}% · in carica", data.battery.percent)
-            } else {
-                format!("{}%", data.battery.percent)
-            }
-        } else {
-            "Non disponibile".into()
-        };
+        if !battery.present {
+            scene.text(
+                "Nessuna batteria",
+                Point::new(panel.x + 18.0, panel.y + 46.0),
+                TextStyle {
+                    size: fonts.size_body,
+                    ..Default::default()
+                },
+                theme.text.scale_alpha(0.9 * p),
+            );
+            return;
+        }
+
+        // The reading at a glance: percentage, state, and how full the cell is.
         scene.text(
-            &text,
-            Point::new(panel.x + 18.0, panel.y + 42.0),
+            format!("{}%", battery.percent),
+            Point::new(panel.x + 18.0, panel.y + 34.0),
             TextStyle {
-                size: fonts.size_body,
+                size: 32.0,
+                weight: fonts.weight_semibold,
                 ..Default::default()
             },
-            theme.text.scale_alpha(0.92 * p),
+            theme.text.scale_alpha(p),
         );
-        let actions = [
-            PowerAction::Suspend,
-            PowerAction::Reboot,
-            PowerAction::PowerOff,
-        ];
-        let labels = ["Sospendi", "Riavvia", "Spegni"];
-        for (i, action) in actions.iter().enumerate() {
-            let rect = Rect::new(panel.x + 14.0 + i as f32 * 72.0, panel.y + 88.0, 66.0, 68.0);
-            let hovered = self.cursor.is_some_and(|c| rect.contains(c));
-            scene.rect(
-                rect,
-                theme
-                    .background
-                    .scale_alpha((if hovered { 0.85 } else { 0.55 }) * p),
-                12.0,
+        scene.text(
+            battery.label(),
+            Point::new(panel.x + 18.0, panel.y + 46.0),
+            TextStyle {
+                size: fonts.size_small,
+                align: TextAlign::Right,
+                max_width: Some(panel.w - 36.0),
+                ..Default::default()
+            },
+            if battery.charging {
+                theme.accent.scale_alpha(p)
+            } else {
+                theme.text_muted.scale_alpha(0.85 * p)
+            },
+        );
+        let track = Rect::new(panel.x + 18.0, panel.y + 82.0, panel.w - 36.0, 6.0);
+        scene.rect(track, theme.border.scale_alpha(0.45 * p), 3.0);
+        let fill = (track.w * f32::from(battery.percent) / 100.0).max(3.0);
+        scene.rect(
+            Rect::new(track.x, track.y, fill, track.h),
+            if battery.percent <= 15 {
+                theme.danger.scale_alpha(p)
+            } else {
+                theme.accent.scale_alpha(p)
+            },
+            3.0,
+        );
+
+        let width = panel.w - 36.0;
+        let mut y = panel.y + 104.0;
+        let mut row = |label: &str, value: String| {
+            self.stat_row(scene, panel.x + 18.0, y, width, label, &value, config, p);
+            y += 25.0;
+        };
+        if battery.seconds_full > 0 {
+            row("Tempo alla carica", format_duration(battery.seconds_full));
+        }
+        if battery.seconds_left > 0 {
+            row("Tempo rimanente", format_duration(battery.seconds_left));
+        }
+        if battery.power_w > 0.05 {
+            let watts = if battery.charging || battery.status == lard_services::battery::BatteryStatus::NotCharging {
+                battery.power_w
+            } else {
+                -battery.power_w
+            };
+            row("Potenza", format!("{watts:+.1} W"));
+        }
+        if battery.energy_full_wh > 0.0 {
+            row(
+                "Carica",
+                format!(
+                    "{:.1} / {:.1} Wh",
+                    battery.energy_now_wh, battery.energy_full_wh
+                ),
             );
-            scene.text_center_y(
-                icons::POWER,
-                rect.x,
-                rect.y + 20.0,
-                TextStyle {
-                    size: 18.0,
-                    align: TextAlign::Center,
-                    max_width: Some(rect.w),
-                    ..Default::default()
-                }
-                .icon(),
-                if matches!(action, PowerAction::PowerOff) {
-                    theme.danger.scale_alpha(p)
+        }
+        if battery.health_percent > 0 {
+            row(
+                "Salute",
+                if battery.energy_full_design_wh > 0.0 {
+                    format!(
+                        "{}% · {:.1} Wh",
+                        battery.health_percent, battery.energy_full_design_wh
+                    )
                 } else {
-                    theme.accent.scale_alpha(p)
+                    format!("{}%", battery.health_percent)
                 },
             );
-            scene.text_center_y(
-                labels[i],
-                rect.x,
-                rect.y + 48.0,
-                TextStyle {
-                    size: 10.0,
-                    align: TextAlign::Center,
-                    max_width: Some(rect.w),
-                    ..Default::default()
-                },
-                theme.text.scale_alpha(0.85 * p),
-            );
-            self.hits.push((rect, PopoverAction::Power(*action)));
+        }
+        if battery.cycles > 0 {
+            row("Cicli", battery.cycles.to_string());
+        }
+        if battery.voltage_v > 0.5 {
+            row("Tensione", format!("{:.1} V", battery.voltage_v));
+        }
+        if !battery.charging && battery.external_power && battery.seconds_left == 0 {
+            row("Alimentazione", "Esterna".into());
         }
     }
 
@@ -1147,21 +1192,43 @@ impl Popover {
         p: f32,
     ) {
         self.title(scene, panel, "Sistema", config, p);
-        self.meter(
-            scene,
-            Rect::new(panel.x + 18.0, panel.y + 42.0, panel.w - 36.0, 30.0),
-            "CPU",
-            data.system.cpu_percent,
-            config,
-            p,
+        crate::widgets::system_monitor(scene, panel, data.system, config, p);
+    }
+
+    /// Label on the left, value right-aligned: the battery panel rows.
+    fn stat_row(
+        &self,
+        scene: &mut Scene,
+        x: f32,
+        y: f32,
+        width: f32,
+        label: &str,
+        value: &str,
+        config: &Config,
+        p: f32,
+    ) {
+        let theme = &config.theme;
+        let fonts = &config.font;
+        scene.text(
+            label,
+            Point::new(x, y),
+            TextStyle {
+                size: fonts.size_small,
+                ..Default::default()
+            },
+            theme.text_muted.scale_alpha(0.75 * p),
         );
-        self.meter(
-            scene,
-            Rect::new(panel.x + 18.0, panel.y + 82.0, panel.w - 36.0, 30.0),
-            "RAM",
-            data.system.memory_percent,
-            config,
-            p,
+        scene.text(
+            value,
+            Point::new(x, y),
+            TextStyle {
+                size: fonts.size_small,
+                weight: fonts.weight_medium,
+                align: TextAlign::Right,
+                max_width: Some(width),
+                ..Default::default()
+            },
+            theme.text.scale_alpha(0.92 * p),
         );
     }
 
@@ -1267,6 +1334,36 @@ impl Popover {
             p,
         );
         y += tile_h + gap;
+
+        // CPU/RAM at a glance; the row is the door to the task manager.
+        let system_row = Rect::new(inner_x, y, inner_w, 44.0);
+        let row_hovered = self.cursor.is_some_and(|cursor| system_row.contains(cursor));
+        scene.rect(
+            system_row,
+            theme
+                .background
+                .scale_alpha((if row_hovered { 0.85 } else { 0.55 }) * p),
+            12.0,
+        );
+        let meter_w = (inner_w - 36.0) * 0.5;
+        crate::widgets::meter(
+            scene,
+            Rect::new(inner_x + 12.0, y + 12.0, meter_w, 24.0),
+            "CPU",
+            data.system.cpu_percent,
+            config,
+            p,
+        );
+        crate::widgets::meter(
+            scene,
+            Rect::new(inner_x + 24.0 + meter_w, y + 12.0, meter_w, 24.0),
+            "RAM",
+            data.system.memory_percent,
+            config,
+            p,
+        );
+        self.hits.push((system_row, PopoverAction::ExpandSystem));
+        y += 44.0 + gap;
 
         if data.brightness_present {
             self.build_cc_slider(
@@ -2032,51 +2129,6 @@ impl Popover {
         }
     }
 
-    fn meter(
-        &self,
-        scene: &mut Scene,
-        rect: Rect,
-        label: &str,
-        percent: u8,
-        config: &Config,
-        p: f32,
-    ) {
-        let theme = &config.theme;
-        let fonts = &config.font;
-        scene.text(
-            label,
-            Point::new(rect.x, rect.y),
-            TextStyle {
-                size: fonts.size_small,
-                weight: fonts.weight_medium,
-                ..Default::default()
-            },
-            theme.text_muted.scale_alpha(0.8 * p),
-        );
-        scene.text(
-            format!("{}%", percent),
-            Point::new(rect.x, rect.y),
-            TextStyle {
-                size: fonts.size_small,
-                weight: fonts.weight_semibold,
-                align: TextAlign::Right,
-                max_width: Some(rect.w),
-                ..Default::default()
-            },
-            theme.text.scale_alpha(0.95 * p),
-        );
-        let track = Rect::new(rect.x, rect.y + 18.0, rect.w, 6.0);
-        scene.rect(track, theme.background.scale_alpha(0.75 * p), 3.0);
-        let fill = track.w * f32::from(percent.min(100)) / 100.0;
-        if fill > 0.0 {
-            scene.rect(
-                Rect::new(track.x, track.y, fill, track.h),
-                theme.accent.scale_alpha(p),
-                3.0,
-            );
-        }
-    }
-
     fn toggle_switch(
         &mut self,
         scene: &mut Scene,
@@ -2147,6 +2199,17 @@ fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
+
+/// "2 h 14 min" / "47 min" from a number of seconds.
+fn format_duration(seconds: u32) -> String {
+    let minutes = seconds / 60;
+    if minutes >= 60 {
+        format!("{} h {:02} min", minutes / 60, minutes % 60)
+    } else {
+        format!("{minutes} min")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2156,6 +2219,9 @@ mod tests {
     use lard_services::system::SystemStats;
 
     fn data(network: &NetworkState) -> PopoverData<'_> {
+        // `PopoverData` borrows the system snapshot: give the tests one that
+        // lives long enough instead of a temporary.
+        static SYSTEM: std::sync::OnceLock<SystemStats> = std::sync::OnceLock::new();
         PopoverData {
             clock: "12:00",
             date: "mar 20 ott",
@@ -2167,7 +2233,7 @@ mod tests {
             },
             wifi_enabled: true,
             battery: BatteryState::default(),
-            system: SystemStats::default(),
+            system: SYSTEM.get_or_init(SystemStats::default),
             dnd: false,
             active_toasts: 0,
             volume: 50,
@@ -2420,6 +2486,48 @@ mod tests {
             popover.pointer_press(power_off.center()),
             Some(PopoverAction::Power(PowerAction::PowerOff))
         ));
+    }
+
+    #[test]
+    fn control_center_system_row_expands_into_the_monitor() {
+        let config = Config::default();
+        let network = NetworkState::Disconnected;
+        let data = data(&network);
+        let mut popover = Popover::new(config.animation.panel, false);
+        popover.open(PopoverKind::ControlCenter, 800.0, None);
+        for _ in 0..60 {
+            popover.update(1.0 / 60.0);
+        }
+        let mut scene = Scene::new();
+        popover.build(
+            &mut scene,
+            Size::new(1600.0, 900.0),
+            &data,
+            &config,
+            1230.0,
+            None,
+        );
+        let row = popover
+            .hits
+            .iter()
+            .find(|(_, action)| matches!(action, PopoverAction::ExpandSystem))
+            .map(|(rect, _)| *rect)
+            .expect("the CPU/RAM row must be clickable");
+        assert!(matches!(
+            popover.pointer_press(row.center()),
+            Some(PopoverAction::ExpandSystem)
+        ));
+        let compact_height = popover.current_size().h;
+        popover.expand_page(ControlPage::System);
+        // The page becomes interactive once the card has grown.
+        for _ in 0..60 {
+            popover.update(1.0 / 60.0);
+        }
+        assert_eq!(popover.expanded_page(), Some(ControlPage::System));
+        assert!(
+            popover.current_size().h > compact_height,
+            "the card must grow for the monitor"
+        );
     }
 
     #[test]

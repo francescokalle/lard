@@ -135,3 +135,221 @@ pub fn truncate_to_width(text: &str, size: f32, max_width: f32) -> String {
     out.push('…');
     out
 }
+
+/// Small labelled meter (label, percentage, bar): the CPU/RAM rows shared by
+/// the control center, the system monitor and the side panel.
+pub fn meter(
+    scene: &mut lard_render::Scene,
+    rect: Rect,
+    label: &str,
+    percent: u8,
+    config: &lard_core::Config,
+    p: f32,
+) {
+    use lard_core::Point;
+    use lard_render::{TextAlign, TextStyle};
+    let theme = &config.theme;
+    let fonts = &config.font;
+    scene.text(
+        label,
+        Point::new(rect.x, rect.y),
+        TextStyle {
+            size: fonts.size_small,
+            weight: fonts.weight_medium,
+            ..Default::default()
+        },
+        theme.text_muted.scale_alpha(0.8 * p),
+    );
+    scene.text(
+        format!("{}%", percent),
+        Point::new(rect.x, rect.y),
+        TextStyle {
+            size: fonts.size_small,
+            weight: fonts.weight_semibold,
+            align: TextAlign::Right,
+            max_width: Some(rect.w),
+            ..Default::default()
+        },
+        theme.text.scale_alpha(0.95 * p),
+    );
+    let track = Rect::new(rect.x, rect.y + 18.0, rect.w, 6.0);
+    scene.rect(track, theme.background.scale_alpha(0.75 * p), 3.0);
+    let fill = track.w * f32::from(percent.min(100)) / 100.0;
+    if fill > 0.0 {
+        scene.rect(
+            Rect::new(track.x, track.y, fill, track.h),
+            theme.accent.scale_alpha(p),
+            3.0,
+        );
+    }
+}
+
+/// The mini task manager: CPU and memory, load average, the two process
+/// leaderboards and the uptime. Shared so the standalone panel and the control
+/// center page never drift apart.
+pub fn system_monitor(
+    scene: &mut lard_render::Scene,
+    panel: Rect,
+    system: &lard_services::system::SystemStats,
+    config: &lard_core::Config,
+    p: f32,
+) {
+    use lard_core::Point;
+    use lard_render::TextStyle;
+    let theme = &config.theme;
+    let fonts = &config.font;
+    let width = panel.w - 36.0;
+    meter(
+        scene,
+        Rect::new(panel.x + 18.0, panel.y + 34.0, width, 30.0),
+        "CPU",
+        system.cpu_percent,
+        config,
+        p,
+    );
+    scene.text(
+        format!(
+            "{} core · carico {:.2}  {:.2}  {:.2}",
+            system.cpu_count, system.load[0], system.load[1], system.load[2]
+        ),
+        Point::new(panel.x + 18.0, panel.y + 64.0),
+        TextStyle {
+            size: fonts.size_small - 1.0,
+            ..Default::default()
+        },
+        theme.text_muted.scale_alpha(0.72 * p),
+    );
+    meter(
+        scene,
+        Rect::new(panel.x + 18.0, panel.y + 92.0, width, 30.0),
+        "RAM",
+        system.memory_percent,
+        config,
+        p,
+    );
+    scene.text(
+        format!(
+            "{:.1} / {:.1} GB in uso",
+            f32::from(system.memory_used_mb as u16) / 1024.0,
+            f32::from(system.memory_total_mb as u16) / 1024.0
+        ),
+        Point::new(panel.x + 18.0, panel.y + 122.0),
+        TextStyle {
+            size: fonts.size_small - 1.0,
+            ..Default::default()
+        },
+        theme.text_muted.scale_alpha(0.72 * p),
+    );
+    process_list(
+        scene,
+        Rect::new(panel.x, panel.y + 150.0, panel.w, 120.0),
+        "Processi · CPU",
+        &system.top_cpu,
+        config,
+        p,
+    );
+    process_list(
+        scene,
+        Rect::new(panel.x, panel.y + 278.0, panel.w, 120.0),
+        "Processi · memoria",
+        &system.top_mem,
+        config,
+        p,
+    );
+    let uptime = system.uptime_secs;
+    scene.text(
+        format!("Attivo da {}h {:02}m", uptime / 3600, (uptime % 3600) / 60),
+        Point::new(panel.x + 18.0, panel.y + 404.0),
+        TextStyle {
+            size: fonts.size_small - 1.0,
+            ..Default::default()
+        },
+        theme.text_muted.scale_alpha(0.6 * p),
+    );
+}
+
+/// One line of a leaderboard: name on the left, CPU and memory on the right.
+pub fn process_list(
+    scene: &mut lard_render::Scene,
+    rect: Rect,
+    label: &str,
+    processes: &[lard_services::system::ProcInfo],
+    config: &lard_core::Config,
+    p: f32,
+) {
+    use lard_core::Point;
+    use lard_render::{TextAlign, TextStyle};
+    let theme = &config.theme;
+    let fonts = &config.font;
+    scene.text(
+        label,
+        Point::new(rect.x + 18.0, rect.y),
+        TextStyle {
+            size: fonts.size_small - 1.0,
+            weight: fonts.weight_semibold,
+            ..Default::default()
+        },
+        theme.text_muted.scale_alpha(0.8 * p),
+    );
+    if processes.is_empty() {
+        scene.text(
+            "nessun processo",
+            Point::new(rect.x + 18.0, rect.y + 20.0),
+            TextStyle {
+                size: fonts.size_small - 1.0,
+                ..Default::default()
+            },
+            theme.text_muted.scale_alpha(0.5 * p),
+        );
+        return;
+    }
+    for (index, process) in processes.iter().enumerate() {
+        let y = rect.y + 20.0 + index as f32 * 19.0;
+        scene.text(
+            truncate(&process.name, 24),
+            Point::new(rect.x + 18.0, y),
+            TextStyle {
+                size: fonts.size_small,
+                max_width: Some(rect.w - 190.0),
+                wrap: false,
+                ..Default::default()
+            },
+            theme.text.scale_alpha(0.9 * p),
+        );
+        scene.text(
+            format!("{:.0}%", process.cpu_percent),
+            Point::new(rect.x + 18.0, y),
+            TextStyle {
+                size: fonts.size_small,
+                align: TextAlign::Right,
+                max_width: Some(rect.w - 36.0 - 74.0),
+                ..Default::default()
+            },
+            if process.cpu_percent >= 25.0 {
+                theme.accent.scale_alpha(p)
+            } else {
+                theme.text.scale_alpha(0.8 * p)
+            },
+        );
+        scene.text(
+            format_quantity(process.memory_mb),
+            Point::new(rect.x + 18.0, y),
+            TextStyle {
+                size: fonts.size_small,
+                align: TextAlign::Right,
+                max_width: Some(rect.w - 36.0),
+                ..Default::default()
+            },
+            theme.text_muted.scale_alpha(0.75 * p),
+        );
+    }
+}
+
+/// Process memory with one decimal under 100 MB.
+fn format_quantity(megabytes: f32) -> String {
+    if megabytes >= 100.0 {
+        format!("{megabytes:.0} MB")
+    } else {
+        format!("{megabytes:.1} MB")
+    }
+}

@@ -419,6 +419,22 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(millis));
     }
 
+    /// Draw one frame: the burn-in clock starts on the first *drawn* frame, so
+    /// the tests must draw exactly like the shell does.
+    fn draw_once(saver: &mut Screensaver) {
+        let config = Config::default();
+        let mut scene = Scene::new();
+        let mut scripts = SceneScripts::new();
+        saver.build_with(
+            &mut scene,
+            Size::new(1600.0, 900.0),
+            &config,
+            "12:00",
+            "mar 20 ott",
+            &mut scripts,
+        );
+    }
+
     #[test]
     fn entry_and_exit_are_symmetric() {
         let settings = ScreensaverConfig {
@@ -427,6 +443,7 @@ mod tests {
         };
         let mut saver = Screensaver::new();
         assert!(saver.open(&settings, &[]));
+        draw_once(&mut saver);
         // The burn-in is timed on the wall clock, not on frames.
         wait(360);
         saver.update(1.0 / 60.0, &settings);
@@ -465,6 +482,7 @@ mod tests {
         let mut seeds = std::collections::HashSet::new();
         for _ in 0..8 {
             saver.open(&settings, &[]);
+            draw_once(&mut saver);
             seeds.insert(saver.seed.to_bits());
             saver.close();
             // Let the exit fade finish: reopening mid-fade keeps the scene.
@@ -483,6 +501,11 @@ mod tests {
         };
         let mut saver = Screensaver::new();
         saver.open(&settings, &[]);
+        draw_once(&mut saver);
+        // Let the burn-in run a little: closing at reveal 0 means there is no
+        // fade to resume, so there would be nothing to keep.
+        wait(120);
+        saver.update(1.0 / 60.0, &settings);
         let scene = saver.mode;
         let seed = saver.seed;
         saver.close();

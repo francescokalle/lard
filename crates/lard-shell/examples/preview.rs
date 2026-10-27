@@ -41,6 +41,7 @@ fn main() -> anyhow::Result<()> {
         percent: 82,
         charging: true,
         external_power: true,
+        ..BatteryState::default()
     };
     shell.network = NetworkState::Connected {
         ssid: Some("HomeNet".into()),
@@ -55,6 +56,21 @@ fn main() -> anyhow::Result<()> {
     shell.system = lard_services::system::SystemStats {
         cpu_percent: 25,
         memory_percent: 27,
+        memory_used_mb: 6_120,
+        memory_total_mb: 15_600,
+        load: [0.62, 0.84, 0.91],
+        cpu_count: 8,
+        uptime_secs: 3 * 3600 + 42 * 60,
+        top_cpu: vec![
+            lard_services::system::ProcInfo { pid: 4242, name: "lard".into(), cpu_percent: 12.0, memory_mb: 97.0 },
+            lard_services::system::ProcInfo { pid: 9182, name: "zen".into(), cpu_percent: 9.0, memory_mb: 812.0 },
+            lard_services::system::ProcInfo { pid: 4410, name: "niri".into(), cpu_percent: 4.0, memory_mb: 61.0 },
+        ],
+        top_mem: vec![
+            lard_services::system::ProcInfo { pid: 9182, name: "zen".into(), cpu_percent: 9.0, memory_mb: 812.0 },
+            lard_services::system::ProcInfo { pid: 4242, name: "lard".into(), cpu_percent: 12.0, memory_mb: 97.0 },
+            lard_services::system::ProcInfo { pid: 4410, name: "niri".into(), cpu_percent: 4.0, memory_mb: 61.0 },
+        ],
     };
     let mut scene = Scene::new();
     wallpaper(&mut scene, 1280.0, 48.0, &config.theme, 12);
@@ -92,6 +108,7 @@ fn main() -> anyhow::Result<()> {
         percent: 82,
         charging: false,
         external_power: true,
+        ..BatteryState::default()
     };
     shell.network = NetworkState::Connected {
         ssid: Some("HomeNet".into()),
@@ -108,6 +125,21 @@ fn main() -> anyhow::Result<()> {
     shell.system = lard_services::system::SystemStats {
         cpu_percent: 25,
         memory_percent: 27,
+        memory_used_mb: 6_120,
+        memory_total_mb: 15_600,
+        load: [0.62, 0.84, 0.91],
+        cpu_count: 8,
+        uptime_secs: 3 * 3600 + 42 * 60,
+        top_cpu: vec![
+            lard_services::system::ProcInfo { pid: 4242, name: "lard".into(), cpu_percent: 12.0, memory_mb: 97.0 },
+            lard_services::system::ProcInfo { pid: 9182, name: "zen".into(), cpu_percent: 9.0, memory_mb: 812.0 },
+            lard_services::system::ProcInfo { pid: 4410, name: "niri".into(), cpu_percent: 4.0, memory_mb: 61.0 },
+        ],
+        top_mem: vec![
+            lard_services::system::ProcInfo { pid: 9182, name: "zen".into(), cpu_percent: 9.0, memory_mb: 812.0 },
+            lard_services::system::ProcInfo { pid: 4242, name: "lard".into(), cpu_percent: 12.0, memory_mb: 97.0 },
+            lard_services::system::ProcInfo { pid: 4410, name: "niri".into(), cpu_percent: 4.0, memory_mb: 61.0 },
+        ],
     };
     let anchor = 1255.0;
     shell.open_popover(PopoverKind::ControlCenter, anchor, None);
@@ -133,6 +165,45 @@ fn main() -> anyhow::Result<()> {
     wallpaper(&mut scene, W as f32, H as f32, &config.theme, 48);
     shell.build_popover(&mut scene, Size::new(W as f32, H as f32), left);
     save(&gpu, &mut renderer, "control-popover-power", W, H, &scene)?;
+
+    // ---- system monitor from the Control Center ----
+    // The CPU/RAM row sits after the two tile rows: click it like a pointer.
+    let top = config.bar.height + config.bar.margin + 6.0;
+    let row_y = top + 237.0 + 22.0;
+    shell.popover_press(Point::new(left + 180.0, row_y));
+    for _ in 0..40 {
+        shell.update(1.0 / 60.0);
+    }
+    // A wider canvas: the expanded card is 400 px and would be clipped at the
+    // 1280 px edge used for the bar renders.
+    let wide = 1600u32;
+    let wide_left = 1000.0;
+    let mut scene = Scene::new();
+    wallpaper(&mut scene, wide as f32, H as f32, &config.theme, 48);
+    shell.build_popover(&mut scene, Size::new(wide as f32, H as f32), wide_left);
+    save(
+        &gpu,
+        &mut renderer,
+        "control-popover-system",
+        wide,
+        H,
+        &scene,
+    )?;
+
+    // ---- battery statistics and the standalone task manager ----
+    for (kind, name) in [
+        (PopoverKind::Battery, "popover-battery"),
+        (PopoverKind::System, "popover-system"),
+    ] {
+        shell.open_popover(kind, anchor, None);
+        for _ in 0..40 {
+            shell.update(1.0 / 60.0);
+        }
+        let mut scene = Scene::new();
+        wallpaper(&mut scene, wide as f32, H as f32, &config.theme, 48);
+        shell.build_popover(&mut scene, Size::new(wide as f32, H as f32), wide_left);
+        save(&gpu, &mut renderer, name, wide, H, &scene)?;
+    }
 
     // ---- dock ----
     shell.update(1.0 / 60.0);
@@ -190,6 +261,7 @@ fn main() -> anyhow::Result<()> {
         percent: 82,
         charging: false,
         external_power: true,
+        ..BatteryState::default()
     };
     shell.network = NetworkState::Connected {
         ssid: Some("HomeNet".into()),

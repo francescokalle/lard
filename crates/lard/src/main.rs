@@ -30,7 +30,7 @@ fn run() -> Result<()> {
         "ipc" => {
             let Some(command) = args.get(1) else {
                 eprintln!(
-                    "uso: lard ipc <launcher|controls|control-center|notifications|wifi|bluetooth|power-menu|settings|wallpapers|volume-up|volume-down|toggle-mute|lock|quit>"
+                    "uso: lard ipc <launcher|controls|control-center|notifications|wifi|bluetooth|battery|system|power-menu|settings|wallpapers|volume-up|volume-down|toggle-mute|lock|quit>"
                 );
                 std::process::exit(2);
             };

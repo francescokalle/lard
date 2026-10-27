@@ -488,6 +488,16 @@ impl App {
                     shell.open_bluetooth_panel();
                 }
             }
+            IpcCommand::Battery => {
+                if let Some(shell) = &mut self.shell {
+                    shell.open_battery_panel();
+                }
+            }
+            IpcCommand::System => {
+                if let Some(shell) = &mut self.shell {
+                    shell.open_system_panel();
+                }
+            }
             IpcCommand::PowerMenu => {
                 if let Some(shell) = &mut self.shell {
                     shell.open_power_menu();

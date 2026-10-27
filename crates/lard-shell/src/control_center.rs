@@ -20,6 +20,8 @@ pub enum ControlPage {
     Wifi,
     Bluetooth,
     Power,
+    /// Mini task manager: CPU/RAM and the hottest processes.
+    System,
 }
 
 /// Result of interacting with a control-center page that is embedded in an
@@ -89,6 +91,7 @@ pub struct ControlData<'a> {
     pub wifi_error: Option<&'a str>,
     pub wifi_connecting: Option<&'a str>,
     pub bluetooth_devices: &'a [BluetoothDevice],
+    pub system: &'a lard_services::system::SystemStats,
     pub bt_scanning: bool,
     pub bt_error: Option<&'a str>,
     pub bt_connecting: Option<&'a str>,
@@ -382,7 +385,10 @@ impl ControlCenter {
         config: &lard_core::Config,
         p: f32,
     ) {
-        if !matches!(page, ControlPage::Wifi | ControlPage::Bluetooth) {
+        if !matches!(
+            page,
+            ControlPage::Wifi | ControlPage::Bluetooth | ControlPage::System
+        ) {
             return;
         }
         self.hits.clear();
@@ -397,6 +403,16 @@ impl ControlCenter {
             ControlPage::Bluetooth => {
                 self.page_header(scene, panel, content_x, p, "Bluetooth", config);
                 self.build_bluetooth(scene, panel, content_x, content_w, data, config, p);
+            }
+            ControlPage::System => {
+                self.page_header(scene, panel, content_x, p, "Monitor di sistema", config);
+                crate::widgets::system_monitor(
+                    scene,
+                    Rect::new(panel.x, panel.y + 26.0, panel.w, panel.h - 26.0),
+                    data.system,
+                    config,
+                    p,
+                );
             }
             ControlPage::Home | ControlPage::Power => {}
         }
@@ -630,6 +646,16 @@ impl ControlCenter {
             ControlPage::Bluetooth => {
                 self.page_header(scene, panel, content_x, content_p, "Bluetooth", config);
                 self.build_bluetooth(scene, panel, content_x, content_w, data, config, content_p);
+            }
+            ControlPage::System => {
+                self.page_header(scene, panel, content_x, content_p, "Monitor di sistema", config);
+                crate::widgets::system_monitor(
+                    scene,
+                    Rect::new(panel.x, panel.y + 26.0, panel.w, panel.h - 26.0),
+                    data.system,
+                    config,
+                    content_p,
+                );
             }
             ControlPage::Power => {
                 self.page_header(scene, panel, content_x, content_p, "Alimentazione", config);
@@ -2618,12 +2644,14 @@ mod tests {
     use lard_services::battery::BatteryState;
     use lard_services::bluetooth::BluetoothState;
     use lard_services::network::NetworkState;
+    use lard_services::system::SystemStats;
 
     fn data<'a>(
         network: &'a NetworkState,
         wifi_networks: &'a [WifiNetwork],
         bluetooth_devices: &'a [BluetoothDevice],
     ) -> ControlData<'a> {
+        static SYSTEM: std::sync::OnceLock<SystemStats> = std::sync::OnceLock::new();
         ControlData {
             volume: 50,
             muted: false,
@@ -2650,6 +2678,7 @@ mod tests {
             bt_scanning: false,
             bt_error: None,
             bt_connecting: None,
+            system: SYSTEM.get_or_init(SystemStats::default),
             clock: "12:00",
             date: "mar 20 ott",
         }

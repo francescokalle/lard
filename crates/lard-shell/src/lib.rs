@@ -657,7 +657,7 @@ impl Shell {
             network: &self.network,
             bluetooth: self.bluetooth,
             wifi_enabled: self.wifi_enabled,
-            system: self.system,
+            system: &self.system,
             clock: &self.clock,
             date: &self.date,
             dnd: self.dnd,
@@ -707,19 +707,35 @@ impl Shell {
         if let Some((kind, x)) = press.popover {
             let anchor = self.config.bar.margin + x;
             let island = match kind {
-                PopoverKind::ControlCenter => Some(BarIsland::Right),
+                PopoverKind::ControlCenter
+                | PopoverKind::Battery
+                | PopoverKind::System => Some(BarIsland::Right),
                 PopoverKind::Clock | PopoverKind::Notifications => Some(BarIsland::Center),
                 _ => None,
             };
+            // Battery and task-manager panels grow out of the item that was
+            // clicked, so the island visibly unfolds into the card.
+            let origin = match kind {
+                PopoverKind::Battery | PopoverKind::System => press.origin.map(|rect| {
+                    let radius = self
+                        .config
+                        .bar
+                        .corner_radius
+                        .min(self.config.bar.height * 0.5);
+                    (rect, radius, BarIsland::Right)
+                }),
+                _ => None,
+            }
+            .or_else(|| island.and_then(|island| self.island_origin(island)));
             if kind == PopoverKind::Notifications {
                 // The panel opens under the centre island, not under the bell.
                 let center = self
                     .island_origin(BarIsland::Center)
                     .map(|(rect, _, _)| rect.x + rect.w * 0.5)
                     .unwrap_or(anchor);
-                self.open_popover(kind, center, island);
+                self.open_popover_at(kind, center, origin);
             } else {
-                self.open_popover(kind, anchor, island);
+                self.open_popover_at(kind, anchor, origin);
             }
         }
         match press.action {
@@ -921,7 +937,7 @@ impl Shell {
                 self.bt_error = None;
                 self.request_bt_refresh();
             }
-            ControlPage::Home | ControlPage::Power => {}
+            ControlPage::Home | ControlPage::Power | ControlPage::System => {}
         }
         self.dirty = true;
     }
@@ -950,6 +966,24 @@ impl Shell {
         };
         let anchor = self.config.bar.margin + anchor;
         self.open_popover(PopoverKind::ControlCenter, anchor, Some(BarIsland::Right));
+    }
+
+    /// Battery statistics, opened from the battery item of the right island.
+    pub fn open_battery_panel(&mut self) {
+        self.open_status_panel(PopoverKind::Battery);
+    }
+
+    /// Mini task manager, opened from the CPU/RAM items of the right island.
+    pub fn open_system_panel(&mut self) {
+        self.open_status_panel(PopoverKind::System);
+    }
+
+    fn open_status_panel(&mut self, kind: PopoverKind) {
+        let Some((rect, radius, island)) = self.island_origin(BarIsland::Right) else {
+            return;
+        };
+        let anchor = rect.x + rect.w * 0.5;
+        self.open_popover_at(kind, anchor, Some((rect, radius, island)));
     }
 
     pub fn open_wifi_panel(&mut self) {
@@ -1026,6 +1060,7 @@ impl Shell {
             bt_scanning: self.bt_scanning,
             bt_error: self.bt_error.as_deref(),
             bt_connecting: self.bt_connecting.as_deref(),
+            system: &self.system,
             clock: &self.clock,
             date: &self.date,
         };
@@ -1298,6 +1333,19 @@ impl Shell {
     }
 
     pub fn open_popover(&mut self, kind: PopoverKind, anchor_x: f32, island: Option<BarIsland>) {
+        let origin = island.and_then(|island| self.island_origin(island));
+        self.open_popover_at(kind, anchor_x, origin);
+    }
+
+    /// Like [`Self::open_popover`], but the card grows out of an explicit
+    /// rectangle: a single status item of the right island, not the whole
+    /// island.
+    pub fn open_popover_at(
+        &mut self,
+        kind: PopoverKind,
+        anchor_x: f32,
+        origin: Option<(Rect, f32, BarIsland)>,
+    ) {
         if self.popover.is_open()
             && self.popover.anchor_x() == anchor_x
             && self.popover.kind() == kind
@@ -1305,7 +1353,6 @@ impl Shell {
             self.popover.close();
             return;
         }
-        let origin = island.and_then(|island| self.island_origin(island));
         self.popover.open(kind, anchor_x, origin);
         if kind == PopoverKind::Notifications {
             // The card grows with the number of pending notifications.
@@ -1346,7 +1393,7 @@ impl Shell {
             bluetooth: self.bluetooth,
             wifi_enabled: self.wifi_enabled,
             battery: self.battery,
-            system: self.system,
+            system: &self.system,
             dnd: self.dnd,
             active_toasts: self.toasts.len(),
             volume: self.volume,
@@ -1377,6 +1424,7 @@ impl Shell {
             bt_scanning: self.bt_scanning,
             bt_error: self.bt_error.as_deref(),
             bt_connecting: self.bt_connecting.as_deref(),
+            system: &self.system,
             clock: &self.clock,
             date: &self.date,
         };
@@ -1417,7 +1465,7 @@ impl Shell {
             network: &self.network,
             bluetooth: self.bluetooth,
             wifi_enabled: self.wifi_enabled,
-            system: self.system,
+            system: &self.system,
             clock: &self.clock,
             date: &self.date,
             dnd: self.dnd,
@@ -1511,6 +1559,10 @@ impl Shell {
                 self.popover.expand_page(ControlPage::Wifi);
                 self.wifi_error = None;
                 self.request_wifi_scan();
+            }
+            PopoverAction::ExpandSystem => {
+                self.popover.expand_page(ControlPage::System);
+                self.dirty = true;
             }
             PopoverAction::ExpandBluetooth => {
                 self.popover.expand_page(ControlPage::Bluetooth);
@@ -2453,7 +2505,7 @@ mod tests {
             network: &network,
             bluetooth: BluetoothState::default(),
             wifi_enabled: true,
-            system: SystemStats::default(),
+            system: &SystemStats::default(),
             clock: "12:00",
             date: "mar 20 ott",
             dnd: false,
@@ -2651,7 +2703,7 @@ mod tests {
             network: &network,
             bluetooth: BluetoothState::default(),
             wifi_enabled: true,
-            system: SystemStats::default(),
+            system: &SystemStats::default(),
             clock: "12:00",
             date: "mar 20 ott",
             dnd: false,

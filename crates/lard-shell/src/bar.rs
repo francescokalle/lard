@@ -34,11 +34,17 @@ enum BarHit {
     /// Bell in the centre island: opens the notification center.
     Notifications,
     ControlCenter,
+    /// Status item in the right island: opens its own panel.
+    Battery,
+    Cpu,
+    Ram,
 }
 
 pub struct BarPress {
     pub action: Option<ShellAction>,
     pub popover: Option<(PopoverKind, f32)>,
+    /// Rect of the item that was clicked: the panel grows out of it.
+    pub origin: Option<Rect>,
 }
 
 #[derive(Clone, Debug)]
@@ -86,7 +92,7 @@ pub struct BarData<'a> {
     pub network: &'a NetworkState,
     pub bluetooth: BluetoothState,
     pub wifi_enabled: bool,
-    pub system: SystemStats,
+    pub system: &'a SystemStats,
     pub clock: &'a str,
     pub date: &'a str,
     pub dnd: bool,
@@ -876,6 +882,29 @@ impl Bar {
             );
         }
 
+        // Item rectangles first: they are both hit targets and the shape the
+        // panel grows out of when one of them is clicked.
+        let battery_rect = Rect::new(right_x + pad, top, battery_w, size.h);
+        let cpu_rect = Rect::new(battery_rect.right(), top, meter_w, size.h);
+        let ram_rect = Rect::new(cpu_rect.right(), top, meter_w, size.h);
+        if chrome {
+            for (rect, hit) in [
+                (battery_rect, BarHit::Battery),
+                (cpu_rect, BarHit::Cpu),
+                (ram_rect, BarHit::Ram),
+            ] {
+                if show_battery || hit != BarHit::Battery {
+                    if self.hovered == Some(hit) {
+                        scene.rect(
+                            rect.inset(1.0),
+                            theme.surface_hover.scale_alpha(0.55 * alpha),
+                            radius - 1.0,
+                        );
+                    }
+                }
+            }
+        }
+
         // Battery first: it is the status that has to be readable at a glance.
         let mut meter_x = right_x + pad;
         if show_battery {
@@ -971,12 +1000,18 @@ impl Bar {
                 2.5,
             );
         }
-        // The whole island is the target; the glyph is the visible affordance.
+        // The whole island opens the Control Center; the three meters override
+        // it with their own panels (`press` scans the hits in reverse).
         if chrome {
             self.hits.push((
                 Rect::new(right_x, top, right_w, size.h),
                 BarHit::ControlCenter,
             ));
+            if show_battery {
+                self.hits.push((battery_rect, BarHit::Battery));
+            }
+            self.hits.push((cpu_rect, BarHit::Cpu));
+            self.hits.push((ram_rect, BarHit::Ram));
         }
         Rect::new(right_x, top, right_w, size.h)
     }
@@ -989,13 +1024,19 @@ impl Bar {
             .find(|(rect, _)| rect.contains(pos))
             .map(|(rect, hit)| (*rect, *hit))?;
         let popover = |kind| Some((kind, rect.center().x));
-        let (action, popover) = match hit {
-            BarHit::Workspace(id) => (Some(ShellAction::FocusWorkspace(id)), None),
-            BarHit::Clock => (None, popover(PopoverKind::Clock)),
-            BarHit::Notifications => (None, popover(PopoverKind::Notifications)),
-            BarHit::ControlCenter => (None, popover(PopoverKind::ControlCenter)),
+        let (action, popover, origin) = match hit {
+            BarHit::Workspace(id) => (Some(ShellAction::FocusWorkspace(id)), None, None),
+            BarHit::Clock => (None, popover(PopoverKind::Clock), Some(rect)),
+            BarHit::Notifications => (None, popover(PopoverKind::Notifications), Some(rect)),
+            BarHit::ControlCenter => (None, popover(PopoverKind::ControlCenter), None),
+            BarHit::Battery => (None, popover(PopoverKind::Battery), Some(rect)),
+            BarHit::Cpu | BarHit::Ram => (None, popover(PopoverKind::System), Some(rect)),
         };
-        Some(BarPress { action, popover })
+        Some(BarPress {
+            action,
+            popover,
+            origin,
+        })
     }
 
     pub fn axis(&mut self, _pos: Point, _delta: f64) -> Option<ShellAction> {
@@ -1031,11 +1072,12 @@ mod tests {
                 percent: 87,
                 charging: false,
                 external_power: false,
+                ..BatteryState::default()
             },
             network: &network,
             bluetooth: BluetoothState::default(),
             wifi_enabled: true,
-            system: SystemStats {
+            system: &SystemStats {
                 cpu_percent: 100,
                 memory_percent: 100,
                 ..SystemStats::default()
@@ -1094,7 +1136,7 @@ mod tests {
             network: &network,
             bluetooth: BluetoothState::default(),
             wifi_enabled: true,
-            system: SystemStats::default(),
+            system: &SystemStats::default(),
             clock: "12:00",
             date: "mar 20 ott",
             dnd: false,
@@ -1140,7 +1182,7 @@ mod tests {
             network: &network,
             bluetooth: BluetoothState::default(),
             wifi_enabled: true,
-            system: SystemStats::default(),
+            system: &SystemStats::default(),
             clock: "12:00",
             date: "mar 20 ott",
             dnd: false,
@@ -1183,7 +1225,7 @@ mod tests {
             network: &network,
             bluetooth: BluetoothState::default(),
             wifi_enabled: true,
-            system: SystemStats::default(),
+            system: &SystemStats::default(),
             clock: "12:00",
             date: "mar 20 ott",
             dnd: false,
@@ -1206,11 +1248,84 @@ mod tests {
             .find(|(_, hit)| *hit == BarHit::ControlCenter)
             .map(|(rect, _)| *rect)
             .expect("control center button should be in the status island");
-        let press = bar.press(button.center()).expect("button is clickable");
+        // The three status meters are their own targets now, so the grouped
+        // button is the strip at the right edge of the island.
+        let press = bar
+            .press(Point::new(button.right() - 17.0, button.center().y))
+            .expect("button is clickable");
         assert_eq!(press.action, None);
         assert!(matches!(
             press.popover,
             Some((PopoverKind::ControlCenter, _))
         ));
+    }
+
+    #[test]
+    fn status_items_open_their_own_panels() {
+        let mut config = Config::default();
+        config.bar.show_battery = true;
+        let niri = NiriSnapshot::default();
+        let network = NetworkState::default();
+        let data = BarData {
+            niri: &niri,
+            volume: 40,
+            muted: false,
+            osd: None,
+            battery: BatteryState {
+                present: true,
+                percent: 64,
+                charging: true,
+                external_power: true,
+                ..BatteryState::default()
+            },
+            network: &network,
+            bluetooth: BluetoothState::default(),
+            wifi_enabled: true,
+            system: &SystemStats {
+                cpu_percent: 37,
+                memory_percent: 61,
+                ..SystemStats::default()
+            },
+            clock: "12:00",
+            date: "mar 20 ott",
+            dnd: false,
+            active_toasts: 0,
+            toast: None,
+            notification_count: 0,
+            morph: None,
+        };
+        let mut bar = Bar::new("eDP-1");
+        let mut scene = Scene::new();
+        bar.build(
+            &mut scene,
+            Size::new(1600.0, config.bar.height),
+            &data,
+            &config,
+        );
+        let pick = |hit: BarHit| {
+            bar.hits
+                .iter()
+                .find(|(_, candidate)| *candidate == hit)
+                .map(|(rect, _)| *rect)
+                .expect("item should have a hit area")
+        };
+        let battery = pick(BarHit::Battery);
+        let cpu = pick(BarHit::Cpu);
+        let ram = pick(BarHit::Ram);
+        // Three distinct targets, left to right.
+        assert!(battery.right() <= cpu.x + 0.5, "{battery:?} {cpu:?}");
+        assert!(cpu.right() <= ram.x + 0.5, "{cpu:?} {ram:?}");
+
+        let press = bar.press(battery.center()).expect("battery is clickable");
+        assert!(matches!(press.popover, Some((PopoverKind::Battery, _))));
+        assert_eq!(press.origin, Some(battery));
+
+        let press = bar.press(cpu.center()).expect("cpu is clickable");
+        assert!(matches!(press.popover, Some((PopoverKind::System, _))));
+        assert_eq!(press.origin, Some(cpu));
+
+        let press = bar.press(ram.center()).expect("ram is clickable");
+        assert!(matches!(press.popover, Some((PopoverKind::System, _))));
+        assert_eq!(press.origin, Some(ram));
     }
 }
