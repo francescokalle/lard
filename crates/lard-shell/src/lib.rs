@@ -1385,6 +1385,56 @@ impl Shell {
             left,
             Some((&mut self.control, &control_data)),
         );
+        // A panel that grows out of an island keeps the island's own row on
+        // top: the card reads as the island expanding instead of a new window
+        // covering it. Only the right island has a popover with a status row.
+        if self.popover.origin_island() == Some(BarIsland::Right) {
+            self.draw_island_in_popover(scene, size);
+        }
+    }
+
+    /// Redraw the right island (battery, CPU/RAM, control button) inside the
+    /// top row of the panel that is growing out of it.
+    fn draw_island_in_popover(&mut self, scene: &mut Scene, size: Size) {
+        let margin = self.config.bar.margin;
+        let bar_size = Size::new((size.w - margin * 2.0).max(1.0), self.config.bar.height);
+        let Some(output) = self
+            .niri
+            .focused_output
+            .clone()
+            .or_else(|| self.bars.keys().next().cloned())
+        else {
+            return;
+        };
+        let data = BarData {
+            niri: &self.niri,
+            volume: self.volume,
+            muted: self.muted,
+            osd: None,
+            battery: self.battery,
+            network: &self.network,
+            bluetooth: self.bluetooth,
+            wifi_enabled: self.wifi_enabled,
+            system: self.system,
+            clock: &self.clock,
+            date: &self.date,
+            dnd: self.dnd,
+            active_toasts: self.toasts.len(),
+            toast: None,
+            notification_count: self.toasts.pending(),
+            morph: None,
+        };
+        if let Some(bar) = self.bars.get_mut(&output) {
+            bar.draw_right_island(
+                scene,
+                Point::new(margin, margin),
+                bar_size,
+                &data,
+                &self.config,
+                1.0,
+                false,
+            );
+        }
     }
 
     fn dispatch_embedded(&mut self, command: EmbeddedCommand) {

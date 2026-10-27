@@ -453,145 +453,7 @@ impl Bar {
 
         // ---- right island: cpu/ram, then the grouped Control Center button ----
         let right_marker = scene.marker();
-        // The load indicators stay on the bar, the rest of the status lives
-        // inside the macOS-style panel.
-        let cpu_text = format!("{}%", data.system.cpu_percent);
-        let ram_text = format!("{}%", data.system.memory_percent);
-        // Reserve the width of "100%" up front: sizing the meter on the
-        // current reading made the percentage wrap onto a second line the
-        // moment CPU or RAM reached three digits.
-        // Never below the base small size: anything smaller loses its tops
-        // and bottoms on a 1x display.
-        let text_size = fonts.size_small;
-        let meter_text_w = (approx_width("100%", text_size) * 1.03).ceil();
-        let meter_w = 16.0 + meter_text_w + 10.0;
-        let battery = data.battery;
-        let show_battery = bar.show_battery && battery.present;
-        let battery_w = if show_battery {
-            16.0 + meter_text_w + 10.0
-        } else {
-            0.0
-        };
-        let button_w = 34.0;
-        let right_w = pad * 2.0 + battery_w + meter_w * 2.0 + button_w + 6.0;
-        let right_x = size.w - right_w;
-        self.islands
-            .push((BarIsland::Right, Rect::new(right_x, 0.0, right_w, size.h)));
-        scene.panel(
-            Rect::new(right_x, 0.0, right_w, size.h),
-            bg.scale_alpha(right_alpha),
-            radius,
-            None,
-        );
-        scene.bordered(
-            Rect::new(right_x + 0.5, 0.5, right_w - 1.0, size.h - 1.0),
-            Color::TRANSPARENT,
-            radius,
-            1.0,
-            theme.border.scale_alpha(0.7 * right_alpha),
-        );
-
-        // Battery first: it is the status that has to be readable at a glance.
-        let mut meter_x = right_x + pad;
-        if show_battery {
-            scene.text_center_y(
-                if battery.charging {
-                    icons::BATTERY_CHARGING
-                } else if battery.percent <= 15 {
-                    icons::BATTERY_ALERT
-                } else {
-                    icons::BATTERY_FULL
-                },
-                meter_x,
-                size.h * 0.5,
-                TextStyle {
-                    size: fonts.size_small,
-                    align: TextAlign::Center,
-                    max_width: Some(16.0),
-                    ..Default::default()
-                }
-                .icon(),
-                battery_color(battery.percent, theme).scale_alpha(0.9 * right_alpha),
-            );
-            scene.text_center_y(
-                &format!("{}%", battery.percent),
-                meter_x + 19.0,
-                size.h * 0.5,
-                TextStyle {
-                    size: text_size,
-                    weight: fonts.weight_medium,
-                    align: TextAlign::Left,
-                    max_width: Some(meter_text_w + 2.0),
-                    wrap: false,
-                    ..Default::default()
-                },
-                theme.text.scale_alpha(0.9 * right_alpha),
-            );
-            meter_x += battery_w;
-        }
-
-        // The cpu and ram load.
-        for (icon, text) in [(icons::CPU, &cpu_text), (icons::MEMORY, &ram_text)] {
-            scene.text_center_y(
-                icon,
-                meter_x,
-                size.h * 0.5,
-                TextStyle {
-                    size: fonts.size_small,
-                    align: TextAlign::Center,
-                    max_width: Some(16.0),
-                    ..Default::default()
-                }
-                .icon(),
-                theme.text_muted.scale_alpha(0.85 * right_alpha),
-            );
-            scene.text_center_y(
-                text,
-                meter_x + 19.0,
-                size.h * 0.5,
-                TextStyle {
-                    size: text_size,
-                    weight: fonts.weight_medium,
-                    align: TextAlign::Left,
-                    max_width: Some(meter_text_w + 2.0),
-                    wrap: false,
-                    ..Default::default()
-                },
-                theme.text.scale_alpha(0.9 * right_alpha),
-            );
-            meter_x += meter_w;
-        }
-
-        let control = Rect::new(meter_x + 6.0, (size.h - 26.0) * 0.5, button_w, 26.0);
-        if self.hovered == Some(BarHit::ControlCenter) {
-            scene.rect(
-                control,
-                theme.surface_hover.scale_alpha(0.8),
-                theme.radius.control(),
-            );
-        }
-        bar_icons::control_center(
-            scene,
-            Rect::new(control.x + 6.0, control.center().y - 8.0, 18.0, 16.0),
-            if data.dnd {
-                theme.accent
-            } else {
-                theme.text_muted
-            },
-        );
-        if data.active_toasts > 0 {
-            scene.rect(
-                Rect::new(control.right() - 6.0, control.y + 3.0, 5.0, 5.0),
-                theme.accent,
-                2.5,
-            );
-        }
-        // The whole island is the target; the glyph is the visible affordance.
-        self.hits.push((
-            Rect::new(right_x, 0.0, right_w, size.h),
-            BarHit::ControlCenter,
-        ));
-
+        self.draw_right_island(scene, Point::ZERO, size, data, config, right_alpha, true);
         scene.fade_since(right_marker, right_alpha);
 
         // ---- centre island: clock + date + bell, or the HUD in the same slot ----
@@ -813,6 +675,191 @@ impl Bar {
             }
         }
         scene.fade_since(center_marker, center_alpha);
+    }
+
+    /// Draw the right island: battery, load meters and the control button.
+    ///
+    /// `offset` is where the bar surface's top-left corner lands in the target
+    /// scene (the bar itself passes `(0, 0)`). `chrome` draws the island pill
+    /// and records hits: the panel that grows out of the island passes `false`,
+    /// because its own card is the background and its hits are its own.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_right_island(
+        &mut self,
+        scene: &mut Scene,
+        offset: Point,
+        size: Size,
+        data: &BarData<'_>,
+        config: &Config,
+        alpha: f32,
+        chrome: bool,
+    ) {
+        let theme = &config.theme;
+        let fonts = &config.font;
+        let bar = &config.bar;
+        let frost = if theme.blur && theme.island_blur {
+            theme.frost
+        } else {
+            1.0
+        };
+        let bg = theme
+            .background
+            .with_alpha((theme.background.a * bar.opacity * frost).clamp(0.0, 1.0));
+        let radius = if theme.radius.linked {
+            theme.radius.card()
+        } else {
+            bar.corner_radius
+        }
+        .min(size.h * 0.5);
+        let pad = bar.padding;
+        // The load indicators stay on the bar, the rest of the status lives
+        // inside the macOS-style panel.
+        let cpu_text = format!("{}%", data.system.cpu_percent);
+        let ram_text = format!("{}%", data.system.memory_percent);
+        // Reserve the width of "100%" up front: sizing the meter on the
+        // current reading made the percentage wrap onto a second line the
+        // moment CPU or RAM reached three digits.
+        // Never below the base small size: anything smaller loses its tops
+        // and bottoms on a 1x display.
+        let text_size = fonts.size_small;
+        let meter_text_w = (approx_width("100%", text_size) * 1.03).ceil();
+        let meter_w = 16.0 + meter_text_w + 10.0;
+        let battery = data.battery;
+        let show_battery = bar.show_battery && battery.present;
+        let battery_w = if show_battery {
+            16.0 + meter_text_w + 10.0
+        } else {
+            0.0
+        };
+        let button_w = 34.0;
+        let right_w = pad * 2.0 + battery_w + meter_w * 2.0 + button_w + 6.0;
+        let right_x = offset.x + size.w - right_w;
+        let top = offset.y;
+        let mid_y = offset.y + size.h * 0.5;
+        if chrome {
+            self.islands.push((
+                BarIsland::Right,
+                Rect::new(right_x, top, right_w, size.h),
+            ));
+            scene.panel(
+                Rect::new(right_x, top, right_w, size.h),
+                bg.scale_alpha(alpha),
+                radius,
+                None,
+            );
+            scene.bordered(
+                Rect::new(right_x + 0.5, top + 0.5, right_w - 1.0, size.h - 1.0),
+                Color::TRANSPARENT,
+                radius,
+                1.0,
+                theme.border.scale_alpha(0.7 * alpha),
+            );
+        }
+
+        // Battery first: it is the status that has to be readable at a glance.
+        let mut meter_x = right_x + pad;
+        if show_battery {
+            scene.text_center_y(
+                if battery.charging {
+                    icons::BATTERY_CHARGING
+                } else if battery.percent <= 15 {
+                    icons::BATTERY_ALERT
+                } else {
+                    icons::BATTERY_FULL
+                },
+                meter_x,
+                mid_y,
+                TextStyle {
+                    size: fonts.size_small,
+                    align: TextAlign::Center,
+                    max_width: Some(16.0),
+                    ..Default::default()
+                }
+                .icon(),
+                battery_color(battery.percent, theme).scale_alpha(0.9 * alpha),
+            );
+            scene.text_center_y(
+                &format!("{}%", battery.percent),
+                meter_x + 19.0,
+                mid_y,
+                TextStyle {
+                    size: text_size,
+                    weight: fonts.weight_medium,
+                    align: TextAlign::Left,
+                    max_width: Some(meter_text_w + 2.0),
+                    wrap: false,
+                    ..Default::default()
+                },
+                theme.text.scale_alpha(0.9 * alpha),
+            );
+            meter_x += battery_w;
+        }
+
+        // The cpu and ram load.
+        for (icon, text) in [(icons::CPU, &cpu_text), (icons::MEMORY, &ram_text)] {
+            scene.text_center_y(
+                icon,
+                meter_x,
+                mid_y,
+                TextStyle {
+                    size: fonts.size_small,
+                    align: TextAlign::Center,
+                    max_width: Some(16.0),
+                    ..Default::default()
+                }
+                .icon(),
+                theme.text_muted.scale_alpha(0.85 * alpha),
+            );
+            scene.text_center_y(
+                text,
+                meter_x + 19.0,
+                mid_y,
+                TextStyle {
+                    size: text_size,
+                    weight: fonts.weight_medium,
+                    align: TextAlign::Left,
+                    max_width: Some(meter_text_w + 2.0),
+                    wrap: false,
+                    ..Default::default()
+                },
+                theme.text.scale_alpha(0.9 * alpha),
+            );
+            meter_x += meter_w;
+        }
+
+        let control = Rect::new(meter_x + 6.0, top + (size.h - 26.0) * 0.5, button_w, 26.0);
+        if chrome && self.hovered == Some(BarHit::ControlCenter) {
+            scene.rect(
+                control,
+                theme.surface_hover.scale_alpha(0.8),
+                theme.radius.control(),
+            );
+        }
+        bar_icons::control_center(
+            scene,
+            Rect::new(control.x + 6.0, control.center().y - 8.0, 18.0, 16.0),
+            if data.dnd {
+                theme.accent
+            } else {
+                theme.text_muted
+            },
+        );
+        if data.active_toasts > 0 {
+            scene.rect(
+                Rect::new(control.right() - 6.0, control.y + 3.0, 5.0, 5.0),
+                theme.accent,
+                2.5,
+            );
+        }
+        // The whole island is the target; the glyph is the visible affordance.
+        if chrome {
+            self.hits.push((
+                Rect::new(right_x, top, right_w, size.h),
+                BarHit::ControlCenter,
+            ));
+        }
+
+
     }
 
     pub fn press(&mut self, pos: Point) -> Option<BarPress> {
