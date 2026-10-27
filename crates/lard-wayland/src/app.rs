@@ -299,8 +299,11 @@ pub fn run(mode: Mode) -> Result<()> {
     let greeter = (mode != Mode::Shell).then(|| {
         let mut greeter = GreeterView::new(auth_mode, &config.greeter, config.animation.reduce_motion);
         // The lock screen and the greeter show the desktop wallpaper behind the
-        // card, darkened by `greeter.wallpaper.dim`.
-        greeter.load_wallpaper(std::path::Path::new(&config.theme.wallpaper));
+        // card, darkened by `greeter.wallpaper.dim`. The greeter runs as another
+        // user, so `login_wallpaper` falls back to the desktop user's choice.
+        if let Some(wallpaper) = config.login_wallpaper() {
+            greeter.load_wallpaper(&wallpaper);
+        }
         greeter
     });
 

@@ -264,6 +264,7 @@ impl Shell {
         let popover = Popover::new(config.animation.panel, reduce_motion);
         let wallpaper = WallpaperView::new(config.animation.panel, reduce_motion);
         let toasts = ToastStack::new(config.animation.notification, reduce_motion);
+        let dock = Dock::new(config.animation.panel, reduce_motion);
         let (clock, date) = clock_strings(&config, Local::now());
         let date_long = italian_date_long(Local::now());
         let user = std::env::var("USER")
@@ -308,7 +309,7 @@ impl Shell {
             apps,
             icons,
             bars: HashMap::new(),
-            dock: Dock::new(),
+            dock,
             launcher,
             control,
             osd,
@@ -516,6 +517,7 @@ impl Shell {
             &self.config.dock,
             &self.config.theme,
         );
+        active |= self.dock.update(dt);
         for bar in self.bars.values_mut() {
             bar.sync(&self.niri, &self.config.bar, &self.config.font);
             active |= bar.update(dt);
@@ -2692,8 +2694,13 @@ mod tests {
             ..DesktopEntry::default()
         }];
         let niri = demo_niri();
-        let mut dock = Dock::new();
+        let mut dock = Dock::new(config.animation.panel, config.animation.reduce_motion);
         dock.sync(&apps, &niri, &config.dock, &config.theme);
+        // The island fades in on its first appearance: let it arrive before
+        // drawing, otherwise the test would inspect a fully transparent dock.
+        for _ in 0..80 {
+            dock.update(1.0 / 60.0);
+        }
         let size = dock.size().expect("dock should have one tile");
         let mut scene = Scene::new();
         let mut icons = AppIcons::new();

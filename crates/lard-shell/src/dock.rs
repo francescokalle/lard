@@ -4,6 +4,7 @@
 use crate::ShellAction;
 use crate::app_icons::AppIcons;
 use crate::icons;
+use lard_core::anim::{Spring, SpringConfig};
 use lard_core::desktop::DesktopEntry;
 use lard_core::theme::{DockConfig, Theme};
 use lard_core::{Color, Point, Rect, Size};
@@ -26,10 +27,15 @@ pub struct Dock {
     invalidated: bool,
     /// Panel drawn this frame, used for the compositor-side backdrop blur.
     panel: Rect,
+    /// 0..1 visibility: the island fades in and out instead of popping when it
+    /// is enabled or disabled.
+    opacity: Spring,
+    visible: bool,
+    reduce_motion: bool,
 }
 
 impl Dock {
-    pub fn new() -> Self {
+    pub fn new(animation: SpringConfig, reduce_motion: bool) -> Self {
         Self {
             items: Vec::with_capacity(10),
             size: Size::new(0.0, 0.0),
@@ -37,6 +43,42 @@ impl Dock {
             hovered: None,
             invalidated: true,
             panel: Rect::ZERO,
+            // Hidden at start-up: the first `sync` decides, and the first
+            // appearance then fades in instead of popping.
+            opacity: Spring::new(0.0, animation),
+            visible: false,
+            reduce_motion,
+        }
+    }
+
+    /// 0..1 visibility of the island, used by the shell for the fade.
+    #[must_use]
+    pub fn progress(&self) -> f32 {
+        self.opacity.value().clamp(0.0, 1.0)
+    }
+
+    /// Step the entrance/exit animation. Returns `true` while it still moves.
+    pub fn update(&mut self, dt: f32) -> bool {
+        let moving = self.opacity.update(dt);
+        if !self.visible && !moving {
+            // The fade-out is over: the surface can go away.
+            self.items.clear();
+            self.hits.clear();
+            self.hovered = None;
+            self.size = Size::new(0.0, 0.0);
+        }
+        moving
+    }
+
+    fn set_visible(&mut self, visible: bool) {
+        if self.visible == visible {
+            return;
+        }
+        self.visible = visible;
+        if self.reduce_motion {
+            self.opacity.snap_to(if visible { 1.0 } else { 0.0 });
+        } else {
+            self.opacity.set_target(if visible { 1.0 } else { 0.0 });
         }
     }
 
@@ -50,7 +92,9 @@ impl Dock {
     }
 
     pub fn size(&self) -> Option<Size> {
-        (self.size.w > 0.0 && self.size.h > 0.0).then_some(self.size)
+        // Keep the surface while the island fades out, so the exit is visible.
+        let on_screen = self.visible || !self.opacity.is_settled();
+        (on_screen && self.size.w > 0.0 && self.size.h > 0.0).then_some(self.size)
     }
 
     pub fn items_len(&self) -> usize {
@@ -64,17 +108,21 @@ impl Dock {
         config: &DockConfig,
         theme: &Theme,
     ) {
+        self.set_visible(config.enabled);
         if !self.invalidated {
             return;
         }
         self.invalidated = false;
+        if !config.enabled {
+            // The items stay: clearing them here would make the island vanish
+            // instead of fading out. `update` clears them once at rest.
+            self.hits.clear();
+            self.hovered = None;
+            return;
+        }
         self.items.clear();
         self.hits.clear();
         self.hovered = None;
-        if !config.enabled {
-            self.size = Size::new(0.0, 0.0);
-            return;
-        }
 
         let mut chosen: Vec<DesktopEntry> = Vec::with_capacity(10);
         for pin in &config.pinned {
@@ -162,9 +210,11 @@ impl Dock {
         icons: &mut AppIcons,
     ) {
         self.panel = Rect::ZERO;
-        if self.items.is_empty() {
+        let fade = self.progress();
+        if self.items.is_empty() || fade <= 0.001 {
             return;
         }
+        let opacity = opacity * fade;
         let frost = if theme.blur && theme.island_blur {
             theme.frost
         } else {

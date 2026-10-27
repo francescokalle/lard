@@ -23,6 +23,19 @@ pub struct Config {
     pub screensaver: ScreensaverConfig,
 }
 
+/// Only the wallpaper of another user's configuration matters to the greeter.
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct WallpaperPeek {
+    theme: WallpaperPeekTheme,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct WallpaperPeekTheme {
+    wallpaper: String,
+}
+
 impl Config {
     /// Parse and validate a config file.
     pub fn load(path: &Path) -> Result<Self, crate::ConfigError> {
@@ -87,6 +100,45 @@ impl Config {
         } else {
             Ok(Self::default())
         }
+    }
+
+    /// Wallpaper to show behind the login card.
+    ///
+    /// The greeter runs as its own user (`greeter` with greetd) and reads
+    /// `/etc/lard/config.toml`, which normally has no wallpaper path: the
+    /// desktop user chooses it in the shell. Instead of copying pictures around
+    /// as root, fall back to the most recently used user configuration, so the
+    /// login screen shows the same picture as the desktop.
+    #[must_use]
+    pub fn login_wallpaper(&self) -> Option<PathBuf> {
+        let configured = PathBuf::from(self.theme.wallpaper.trim());
+        if !self.theme.wallpaper.trim().is_empty() && configured.is_file() {
+            return Some(configured);
+        }
+        let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
+        for entry in std::fs::read_dir("/home").ok()?.flatten() {
+            let config = entry.path().join(".config/lard/config.toml");
+            let Ok(text) = std::fs::read_to_string(&config) else {
+                continue;
+            };
+            let Ok(peek) = toml::from_str::<WallpaperPeek>(&text) else {
+                continue;
+            };
+            let wallpaper = PathBuf::from(peek.theme.wallpaper.trim());
+            if !wallpaper.is_file() {
+                continue;
+            }
+            let modified = std::fs::metadata(&config)
+                .and_then(|metadata| metadata.modified())
+                .unwrap_or(std::time::UNIX_EPOCH);
+            if newest
+                .as_ref()
+                .is_none_or(|(best, _)| modified > *best)
+            {
+                newest = Some((modified, wallpaper));
+            }
+        }
+        newest.map(|(_, wallpaper)| wallpaper)
     }
 
     /// The config file that would be loaded. Useful for the file watcher and
