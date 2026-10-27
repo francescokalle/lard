@@ -16,12 +16,13 @@ use crate::scene_script::SceneScripts;
 use lard_core::theme::ScreensaverEffect;
 use lard_core::{Color, Config, Point, Rect, Size};
 use lard_render::{Fluid, FluidMode, Scene, TextAlign, TextStyle};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// Seconds the exit hint stays at full opacity.
 const HINT_FULL_SECS: f32 = 6.0;
-/// Seconds a scenario crossfade takes.
-const BLEND_SECS: f32 = 1.4;
+/// Seconds a scenario crossfade takes. Long on purpose: a fast crossfade
+/// reads as scenes flicking past each other.
+const BLEND_SECS: f32 = 2.6;
 
 /// What the screensaver is showing: one of the built-in looks or a user scene.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -145,13 +146,22 @@ impl Screensaver {
         if self.open {
             return false;
         }
+        let entrance = settings.entrance_secs().clamp(0.15, 2.5);
+        // Reopening while the exit fade is still running continues the same
+        // scene from where it was: picking a new random one here looked like
+        // the scenes swapping every time the session blinked.
+        let resuming = self.reveal > 0.001;
         self.open = true;
-        self.opened_at = Some(Instant::now());
         self.closed_at = None;
-        self.elapsed = 0.0;
-        self.reveal = 0.0;
         self.blend = 0.0;
         self.blend_started = None;
+        if resuming {
+            self.opened_at = Some(Instant::now() - Duration::from_secs_f32(self.reveal * entrance));
+            return true;
+        }
+        self.opened_at = Some(Instant::now());
+        self.elapsed = 0.0;
+        self.reveal = 0.0;
         self.seed = self.next_random();
         self.next_seed = self.seed;
         let count = ScreensaverEffect::ALL.len() + scripts.len();
@@ -430,6 +440,7 @@ mod tests {
     fn random_mode_changes_the_composition_on_every_open() {
         let settings = ScreensaverConfig {
             random: true,
+            entrance_ms: 300,
             ..settings()
         };
         let mut saver = Screensaver::new();
@@ -438,11 +449,29 @@ mod tests {
             saver.open(&settings, &[]);
             seeds.insert(saver.seed.to_bits());
             saver.close();
-            for _ in 0..50 {
-                saver.update(1.0 / 60.0, &settings);
-            }
+            // Let the exit fade finish: reopening mid-fade keeps the scene.
+            wait(360);
+            saver.update(1.0 / 60.0, &settings);
         }
         assert!(seeds.len() >= 6, "seeds barely changed: {seeds:?}");
+    }
+
+    #[test]
+    fn reopening_mid_fade_keeps_the_scene() {
+        let settings = ScreensaverConfig {
+            random: true,
+            entrance_ms: 300,
+            ..settings()
+        };
+        let mut saver = Screensaver::new();
+        saver.open(&settings, &[]);
+        let scene = saver.mode;
+        let seed = saver.seed;
+        saver.close();
+        wait(80);
+        assert!(saver.open(&settings, &[]));
+        assert_eq!(saver.mode, scene, "the scene changed during the exit fade");
+        assert_eq!(saver.seed, seed);
     }
 
     #[test]

@@ -163,8 +163,12 @@ fn grid_scene(uv: vec2<f32>, t: f32, intensity: f32) -> vec3<f32> {
     let lateral = (uv.x - 0.5) * depth;
     let vertical_line = abs(fract(lateral * 1.6) - 0.5);
     let depth_line = abs(fract(depth * 1.5 - t * 0.55) - 0.5);
-    let lines = (1.0 - smoothstep(0.0, 0.055, vertical_line))
-        + (1.0 - smoothstep(0.0, 0.030, depth_line));
+    // Antialias the lines on their own screen-space width: far away a line is
+    // thinner than a pixel, and a fixed threshold would break into dots.
+    let vertical_width = clamp(fwidth(vertical_line) * 1.2, 0.001, 0.12);
+    let depth_width = clamp(fwidth(depth_line) * 1.2, 0.001, 0.12);
+    let lines = (1.0 - smoothstep(0.0, vertical_width, vertical_line))
+        + (1.0 - smoothstep(0.0, depth_width, depth_line));
     // Fade far away and right at the horizon, plus a horizon glow.
     let reach = smoothstep(0.0, 0.18, abs(dy)) * clamp(2.2 - depth * 0.05, 0.0, 1.0);
     let glow = exp(-abs(dy) * 30.0);

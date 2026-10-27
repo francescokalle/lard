@@ -69,7 +69,7 @@ impl SceneScripts {
         engine.set_max_call_levels(8);
         engine.set_max_array_size(MAX_COMMANDS);
         engine.set_max_string_size(4096);
-        engine.set_max_map_size(64);
+        engine.set_max_map_size(4096);
         // Rhai's own expression-depth limits are fine: a `#{ ... }` literal
         // inside a loop is already deeper than a small hand-tuned budget.
 

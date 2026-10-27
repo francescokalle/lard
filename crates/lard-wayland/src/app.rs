@@ -2364,6 +2364,15 @@ impl App {
         };
         let pos = Point::new(event.position.0 as f32, event.position.1 as f32);
         match &event.kind {
+            PointerEventKind::Motion { .. } if matches!(&role, Role::Screensaver) => {
+                // Moving the pointer wakes the session; the Enter that follows
+                // the surface creation must not.
+                if let Some(shell) = &mut self.shell {
+                    shell.close_screensaver();
+                }
+                self.force_update = true;
+                self.mark_all_dirty();
+            }
             PointerEventKind::Enter { .. } => self.pointer_move(role, pos),
             PointerEventKind::Leave { .. } => self.pointer_leave(role),
             PointerEventKind::Motion { .. } => self.pointer_move(role, pos),
@@ -2950,14 +2959,10 @@ impl Dispatch2<ExtIdleNotificationV1, App> for IdleData {
                 app.mark_all_dirty();
             }
             ext_idle_notification_v1::Event::Resumed => {
-                if let Some(shell) = &mut app.shell {
-                    if shell.screensaver_open() {
-                        tracing::info!("session active: hiding the screensaver");
-                    }
-                    shell.close_screensaver();
-                }
-                app.force_update = true;
-                app.mark_all_dirty();
+                // Input resumed, but the screensaver closes on its own input
+                // handlers: the arrow keys are user input too, and closing here
+                // would make the scenarios impossible to browse.
+                tracing::debug!("session active");
             }
             _ => {}
         }
