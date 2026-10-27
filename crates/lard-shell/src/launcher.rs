@@ -41,8 +41,10 @@ pub struct Launcher {
     progress: Spring,
     /// Island the launcher grows out of: screen rectangle and corner radius.
     origin: Option<(Rect, f32)>,
-    /// Shape of the card during the morph.
+    /// Shape of the card during the morph, and the corner radius it is drawn
+    /// with in this frame (the compositor blur must use the same one).
     shape: Rect,
+    radius: f32,
     query: String,
     rows: Vec<Row>,
     selected: usize,
@@ -79,6 +81,7 @@ impl Launcher {
             progress: Spring::new(0.0, animation),
             origin: None,
             shape: Rect::ZERO,
+            radius: 0.0,
             query: String::new(),
             rows: Vec::with_capacity(16),
             selected: 0,
@@ -119,6 +122,13 @@ impl Launcher {
     /// Shape of the card while it morphs out of its island.
     pub fn shape_rect(&self) -> Rect {
         self.shape
+    }
+
+    /// Corner radius the card is currently drawn with. It differs from the
+    /// configured one while the card morphs out of its island, and it follows
+    /// the radius chain when `theme.radius.linked` is on.
+    pub fn shape_radius(&self) -> f32 {
+        self.radius
     }
 
     #[must_use]
@@ -485,6 +495,7 @@ impl Launcher {
             theme.border.scale_alpha(p),
         );
         self.shape = shape;
+        self.radius = radius;
         // The content is laid out in the final card and fades in.
         let card = target;
         let p = content_p;

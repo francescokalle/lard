@@ -94,6 +94,8 @@ pub struct Popover {
     /// Shape of the card during the morph (the target rect when it is in
     /// place).
     shape: Rect,
+    /// Corner radius the card is drawn with in this frame.
+    radius: f32,
     /// Which island the card comes from, so the bar can fade it away.
     origin_island: Option<BarIsland>,
     /// Click/drag target for the two Control Center sliders, in panel space.
@@ -139,6 +141,7 @@ impl Popover {
             origin: None,
             origin_island: None,
             shape: Rect::ZERO,
+            radius: 0.0,
             volume_track: Rect::ZERO,
             brightness_track: Rect::ZERO,
             volume_value: 0,
@@ -332,6 +335,12 @@ impl Popover {
         self.shape
     }
 
+    /// Corner radius the panel is currently drawn with (it morphs from the
+    /// island radius while the card inflates).
+    pub fn shape_radius(&self) -> f32 {
+        self.radius
+    }
+
     /// Progress of the open/close animation.
     pub fn progress(&self) -> f32 {
         self.progress.value().clamp(0.0, 1.0)
@@ -484,6 +493,7 @@ impl Popover {
             ),
         };
         self.shape = panel;
+        self.radius = radius;
         // The shape is solid as soon as it starts growing and the content
         // only appears when the shape has reached its final size: the content
         // must never be drawn outside the panel that is still growing.

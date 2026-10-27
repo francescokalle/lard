@@ -223,12 +223,22 @@ impl Shell {
     /// same rounded corners as the panel.
     pub fn overlay_shape(&self, kind: OverlayKind) -> Option<(lard_core::Rect, f32)> {
         let radius = match kind {
-            OverlayKind::Launcher => self.config.launcher.corner_radius,
-            OverlayKind::Popover => self.config.theme.radius.card(),
+            // The morphing panels use the radius they are drawn with right now:
+            // the configured one made the blur corners pop while the card was
+            // still growing (and differ from the drawn border when the radius
+            // chain is on).
+            OverlayKind::Launcher => self.launcher.shape_radius(),
+            OverlayKind::Popover => self.popover.shape_radius(),
             OverlayKind::ControlCenter | OverlayKind::Settings | OverlayKind::Wallpapers => {
                 self.config.theme.radius.panel()
             }
-            OverlayKind::Notification => self.config.bar.corner_radius,
+            // The island clamps the radius to half its height: the blur must
+            // use the same clamp or the corners do not line up.
+            OverlayKind::Notification => self
+                .config
+                .bar
+                .corner_radius
+                .min(self.config.bar.height * 0.5),
         };
         self.overlay_rect(kind).map(|rect| (rect, radius))
     }
