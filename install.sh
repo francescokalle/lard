@@ -545,6 +545,41 @@ install_fonts() {
     ui_ok "fonts" "$count fonts available"
 }
 
+# awww is an swww fork: on Arch it lives in the AUR, elsewhere it is usually
+# absent. Try the AUR helper, then the packaged swww plus a thin wrapper with the
+# same command line, so the wallpaper picker works either way.
+install_wallpaper_daemon() {
+    if have awww; then
+        ui_ok "wallpaper" "awww already installed"
+        return 0
+    fi
+    local aur=""
+    for helper in paru yay pikaur; do
+        command -v "$helper" >/dev/null 2>&1 && { aur="$helper"; break; }
+    done
+    if [ -n "$aur" ] && [ "$(package_manager)" = pacman ] && [ "$DRY_RUN" -eq 0 ]; then
+        ui_step "wallpaper" "installing awww from the AUR with $aur"
+        sudo_warmup
+        if run_spin "wallpaper" "$aur" -S --needed --noconfirm awww; then
+            have awww && { ui_ok "wallpaper" "awww installed"; return 0; }
+        fi
+    fi
+    if pm_install swww; then
+        if [ "$DRY_RUN" -eq 0 ]; then
+            local tmp; tmp="$(mktemp)"
+            printf '#!/bin/sh\nexec swww "$@"\n' > "$tmp"
+            as_root install -Dm755 "$tmp" /usr/local/bin/awww
+            printf '#!/bin/sh\nexec swww-daemon "$@"\n' > "$tmp"
+            as_root install -Dm755 "$tmp" /usr/local/bin/awww-daemon
+            rm -f "$tmp"
+        fi
+        ui_ok "wallpaper" "swww installed (awww wrapper, same command line)"
+        return 0
+    fi
+    ui_warn "no wallpaper daemon: install awww (AUR) or swww; the picker will stay off"
+    return 0
+}
+
 # Install a package only when its command/unit is missing.
 have() { command -v "$1" >/dev/null 2>&1; }
 
@@ -641,11 +676,9 @@ setup_system() {
     ui_ok "services" "NetworkManager/Bluetooth enabled when present"
 
     # 5) Session autostart of the helper daemons.
+    install_wallpaper_daemon
     if have awww; then
         niri_spawn 'spawn-at-startup "awww-daemon"'
-        ui_ok "wallpaper" "awww-daemon autostarted"
-    else
-        ui_warn "awww (wallpaper daemon) missing: the wallpaper picker will not work"
     fi
 }
 
@@ -857,8 +890,9 @@ install_boot() {
             && ui_ok "boot" "greetd enabled (LARD greeter -> niri session)" \
             || ui_warn "cannot enable greetd.service"
     fi
-    if ! command -v sway >/dev/null 2>&1; then
-        ui_warn "the greeter needs a host compositor: install sway (or use /etc/lard/greeter.kdl with niri)"
+    if ! have sway; then
+        ui_step "boot" "installing sway (host compositor for the greeter)"
+        pm_install sway || ui_warn "sway not installed: the greeter cannot start (or use /etc/lard/greeter.kdl with niri)"
     fi
 }
 
