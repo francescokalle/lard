@@ -884,17 +884,21 @@ ask_boot() {
 
 # No display manager: starting a login on tty1 launches niri (and LARD with it).
 install_tty_autostart() {
-    local profile="$HOME/.bash_profile"
+    local user="${SUDO_USER:-${USER:-$(id -un)}}"
+    if [ "$user" = "root" ]; then
+        user="$(getent passwd 1000 | cut -d: -f1)"
+    fi
+    [ -n "$user" ] || user="$(id -un)"
     if [ "$DRY_RUN" -eq 1 ]; then
-        ui_skip "boot" "[dry-run] would add niri-session to ~/.bash_profile"
+        ui_skip "boot" "[dry-run] would set autologin on tty1 for $user and run niri-session"
         return 0
     fi
-    if grep -q '>>> lard autologin' "$profile" 2>/dev/null; then
-        ui_ok "boot" "niri-session already in ~/.bash_profile"
-        return 0
-    fi
-    [ -f "$profile" ] && cp -a "$profile" "$profile.bak-$(date +%Y%m%d%H%M%S)"
-    cat >> "$profile" <<'EOP'
+    # 1) the shell that starts niri when it lands on tty1
+    local profile
+    profile="$(getent passwd "$user" | cut -d: -f6)/.bash_profile"
+    if ! grep -q '>>> lard autologin' "$profile" 2>/dev/null; then
+        [ -f "$profile" ] && cp -a "$profile" "$profile.bak-$(date +%Y%m%d%H%M%S)"
+        cat >> "$profile" <<'EOP'
 
 # >>> lard autologin
 if [ -z "$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
@@ -902,7 +906,26 @@ if [ -z "$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
 fi
 # <<< lard autologin
 EOP
-    ui_ok "boot" "niri starts on tty1 login (~/.bash_profile)"
+        [ "$(id -u)" -eq 0 ] && as_root chown "$user" "$profile"
+        ui_ok "boot" "niri-session on tty1 login ($profile)"
+    fi
+    # 2) tty1 logs the user in automatically: no login screen to configure
+    local agetty
+    agetty="$(command -v agetty 2>/dev/null || echo /sbin/agetty)"
+    local drop=/etc/systemd/system/getty@tty1.service.d/autologin.conf
+    if command -v systemctl >/dev/null 2>&1; then
+        as_root mkdir -p /etc/systemd/system/getty@tty1.service.d
+        printf '[Service]\nExecStart=\nExecStart=-%s --autologin %s --noclear %%I 38400 linux\n' \
+            "$agetty" "$user" | as_root tee "$drop" >/dev/null
+        as_root systemctl daemon-reload >/dev/null 2>&1 || true
+        as_root systemctl enable getty@tty1.service >/dev/null 2>&1 || true
+        # a display manager would steal the VT: one starter only
+        if systemctl list-unit-files greetd.service >/dev/null 2>&1; then
+            as_root systemctl disable greetd.service >/dev/null 2>&1 || true
+        fi
+        ui_ok "boot" "autologin on tty1 for $user (no login screen needed)"
+    fi
+    return 0
 }
 
 install_boot() {
