@@ -275,41 +275,32 @@ detect_family() {
 # component → package(s) for the detected family
 pkg_for() {
     case "$1:$FAMILY" in
-        cc:arch) echo gcc ;;            cc:debian) echo gcc ;;
-        cc:fedora) echo gcc ;;          cc:suse) echo gcc ;;
-        cc:unknown) echo gcc ;;
-        make:arch) echo make ;;         make:debian) echo make ;;
-        make:fedora) echo make ;;       make:suse) echo make ;;
-        pkgconf:arch) echo pkgconf ;;   pkgconf:debian) echo pkg-config ;;
-        pkgconf:fedora) echo pkgconf-pkg-config ;; pkgconf:suse) echo pkg-config ;;
-        wayland:arch) echo "wayland wayland-protocols" ;;
-        wayland:debian) echo "libwayland-dev libwayland-bin wayland-protocols" ;;
-        wayland:fedora) echo "wayland-devel wayland-protocols-devel" ;;
-        wayland:suse) echo "wayland-devel wayland-protocols-devel" ;;
-        scanner:arch) echo wayland ;;
-        scanner:debian) echo "libwayland-bin libwayland-dev" ;;
-        scanner:fedora) echo "wayland-devel" ;;
-        scanner:suse) echo "wayland-devel" ;;
-        protocols:arch) echo wayland-protocols ;;
-        protocols:debian) echo wayland-protocols ;;
-        protocols:fedora) echo wayland-protocols-devel ;;
-        protocols:suse) echo wayland-protocols-devel ;;
-        pam:arch) echo pam ;;
-        pam:debian) echo libpam0g-dev ;;
-        pam:fedora) echo pam-devel ;;
-        pam:suse) echo pam-devel ;;
-        fontconfig:arch) echo fontconfig ;;
-        fontconfig:debian) echo libfontconfig1-dev ;;
-        fontconfig:fedora) echo fontconfig-devel ;;
-        fontconfig:suse) echo fontconfig-devel ;;
-        xkbcommon:arch) echo libxkbcommon ;;
-        xkbcommon:debian) echo libxkbcommon-dev ;;
-        xkbcommon:fedora) echo libxkbcommon-devel ;;
-        xkbcommon:suse) echo libxkbcommon-devel ;;
-        vulkan:arch) echo vulkan-icd-loader ;;
-        vulkan:debian) echo libvulkan-dev ;;
-        vulkan:fedora) echo vulkan-loader-devel ;;
-        vulkan:suse) echo vulkan-devel ;;
+        cc:*) printf '%s\n' gcc ;;
+        make:*) printf '%s\n' make ;;
+        pkgconf:arch) printf '%s\n' pkgconf ;;
+        pkgconf:debian|pkgconf:suse) printf '%s\n' pkg-config ;;
+        pkgconf:fedora) printf '%s\n' pkgconf-pkg-config ;;
+        wayland:arch) printf '%s\n' wayland wayland-protocols ;;
+        wayland:debian) printf '%s\n' libwayland-dev libwayland-bin wayland-protocols ;;
+        wayland:fedora|wayland:suse) printf '%s\n' wayland-devel wayland-protocols-devel ;;
+        scanner:arch) printf '%s\n' wayland ;;
+        scanner:debian) printf '%s\n' libwayland-bin libwayland-dev ;;
+        scanner:fedora|scanner:suse) printf '%s\n' wayland-devel ;;
+        protocols:arch|protocols:debian) printf '%s\n' wayland-protocols ;;
+        protocols:fedora|protocols:suse) printf '%s\n' wayland-protocols-devel ;;
+        pam:arch) printf '%s\n' pam ;;
+        pam:debian) printf '%s\n' libpam0g-dev ;;
+        pam:fedora|pam:suse) printf '%s\n' pam-devel ;;
+        fontconfig:arch) printf '%s\n' fontconfig ;;
+        fontconfig:debian) printf '%s\n' libfontconfig1-dev ;;
+        fontconfig:fedora|fontconfig:suse) printf '%s\n' fontconfig-devel ;;
+        xkbcommon:arch) printf '%s\n' libxkbcommon ;;
+        xkbcommon:debian) printf '%s\n' libxkbcommon-dev ;;
+        xkbcommon:fedora|xkbcommon:suse) printf '%s\n' libxkbcommon-devel ;;
+        vulkan:arch) printf '%s\n' vulkan-icd-loader ;;
+        vulkan:debian) printf '%s\n' libvulkan-dev ;;
+        vulkan:fedora) printf '%s\n' vulkan-loader-devel ;;
+        vulkan:suse) printf '%s\n' vulkan-devel ;;
         *) ;;
     esac
 }
@@ -368,16 +359,24 @@ install_deps() {
         return 0
     fi
     # The list is built from what is actually missing, per component.
-    local packages="" component
+    local -a pkgs=()
+    local component
     while IFS= read -r component; do
         [ -n "$component" ] || continue
-        packages="$packages $(pkg_for "$component")"
+        while IFS= read -r pkg; do
+            [ -n "$pkg" ] && pkgs+=("$pkg")
+        done < <(pkg_for "$component")
     done <<< "$missing"
-    packages="$(printf '%s\n' $packages | sort -u | tr '\n' ' ')"
-    if [ -z "${packages// /}" ]; then
+    if [ "${#pkgs[@]}" -eq 0 ]; then
         ui_warn "unknown distribution: install manually: $(echo "$missing" | tr '\n' ' ')"
         return 0
     fi
+    # shellcheck disable=SC2207
+    local -a unique=($(printf '%s\n' "${pkgs[@]}" | sort -u))
+    pkgs=("${unique[@]}")
+    local packages
+    packages="$(printf '%s ' "${pkgs[@]}")"
+    packages="${packages% }"
     if [ "$DRY_RUN" -eq 1 ]; then
         ui_skip "dependencies" "[dry-run] would install: $packages"
         return 0
@@ -387,24 +386,29 @@ install_deps() {
     ui_step "dependencies" "installing: $packages"
     sudo_warmup
     case "$pm" in
-        pacman) run_spin "dependencies" as_root pacman -S --needed --noconfirm $packages ;;
+        pacman)
+            # A stale/empty sync database answers "target not found" for packages
+            # that certainly exist: refresh it first, then install.
+            if ! pacman -Si "${pkgs[@]}" >/dev/null 2>&1; then
+                ui_step "dependencies" "refreshing the pacman database"
+                as_root pacman -Sy --noconfirm >>"$LOG_FILE" 2>&1 || true
+            fi
+            run_spin "dependencies" as_root pacman -S --needed --noconfirm "${pkgs[@]}" ;;
         apt-get)
             as_root apt-get update >>"$LOG_FILE" 2>&1 || true
-            run_spin "dependencies" as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y $packages ;;
-        dnf) run_spin "dependencies" as_root dnf install -y $packages ;;
-        zypper) run_spin "dependencies" as_root zypper --non-interactive install $packages ;;
-    esac || die "could not install: $packages (see $LOG_FILE)"
-
-    missing="$(missing_components)"
-    if [ -n "$missing" ]; then
-        ui_fail "still missing after the installation:"
-        while IFS= read -r component; do
-            [ -n "$component" ] || continue
-            ui_warn "  $(hint_for "$component") → $(pkg_for "$component" | tr '\n' ' ')"
-        done <<< "$missing"
-        die "install them and run the installer again"
-    fi
-    ui_ok "dependencies" "installed: $packages"
+            run_spin "dependencies" as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "${pkgs[@]}" ;;
+        dnf) run_spin "dependencies" as_root dnf install -y "${pkgs[@]}" ;;
+        zypper) run_spin "dependencies" as_root zypper --non-interactive install "${pkgs[@]}" ;;
+    esac || {
+        ui_fail "could not install: $packages"
+        if grep -qi "target not found" "$LOG_FILE"; then
+            ui_warn "the package database does not know these packages: refresh it with"
+            ui_warn "  sudo pacman -Syu   (or apt-get update / dnf makecache)"
+            ui_warn "then run the installer again"
+        fi
+        grep -iE "error|not found|failed|no such" "$LOG_FILE" | tail -8 >&2 || true
+        die "dependency installation failed (full log: $LOG_FILE)"
+    }
 }
 
 # rustc links with `cc`; when only `gcc`/`clang` exist we point it there instead
