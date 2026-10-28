@@ -4,18 +4,16 @@
 # lard greeter is an unprivileged Wayland client and only speaks greetd's JSON
 # protocol.
 #
-# A Wayland client cannot host itself: a host compositor with zwlr_layer_shell_v1
-# support is required. Sway (wlroots) is the recommended choice: cage does NOT
-# implement wlr-layer-shell and is not suitable for this greeter. Alternatively
-# use niri with docs/greeter-niri.kdl.
+# A Wayland client cannot host itself: a host compositor with
+# zwlr_layer_shell_v1 support is required. niri is used: LARD already requires
+# it, it implements layer-shell, and it is the setup verified on the reference
+# machine. Sway works too (see docs/greetd/sway-greeter.conf) but is an extra
+# dependency and is not packaged on every distribution.
 
 [terminal]
 vt = 1
+switch = true
 
 [default_session]
-command = "sway --config /etc/lard/greeter-sway.conf"
+command = "niri --config /etc/lard/greeter.kdl"
 user = "greeter"
-
-# Alternative with niri as the host compositor:
-# command = "niri --config /etc/lard/greeter.kdl"
-# user = "greeter"
