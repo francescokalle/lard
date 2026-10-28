@@ -184,37 +184,9 @@ run() {
 # ---------------------------------------------------------------------------
 # Dependencies
 
-PACKAGES=""
-detect_packages() {
-    local id=""
-    if [ -r /etc/os-release ]; then
-        id="$( . /etc/os-release; printf '%s' "${ID:-} ${ID_LIKE:-}" )"
-    fi
-    case "$id" in
-        *arch*) PACKAGES="base-devel pkgconf wayland wayland-protocols pam fontconfig libxkbcommon vulkan-icd-loader" ;;
-        *debian*|*ubuntu*)
-            PACKAGES="build-essential pkg-config libwayland-dev libwayland-bin wayland-protocols libpam0g-dev libfontconfig1-dev libxkbcommon-dev libvulkan-dev" ;;
-        *fedora*|*rhel*)
-            PACKAGES="gcc gcc-c++ make pkgconf-pkg-config wayland-devel wayland-protocols-devel pam-devel fontconfig-devel libxkbcommon-devel vulkan-loader-devel" ;;
-        *suse*) PACKAGES="gcc gcc-c++ make pkg-config wayland-devel wayland-protocols-devel pam-devel fontconfig-devel libxkbcommon-devel vulkan-devel" ;;
-        *) PACKAGES="" ;;
-    esac
-}
 
-missing_deps() {
-    local missing=0
-    command -v pkg-config >/dev/null 2>&1 || missing=1
-    pkg-config --exists wayland-client 2>/dev/null || missing=1
-    # smithay-client-toolkit's build script generates protocol bindings:
-    # without the scanner the build dies in a "custom build command" error.
-    command -v wayland-scanner >/dev/null 2>&1 || missing=1
-    pkg-config --exists libpam 2>/dev/null || missing=1
-    pkg-config --exists fontconfig 2>/dev/null || missing=1
-    pkg-config --exists xkbcommon 2>/dev/null || missing=1
-    pkg-config --exists wayland-protocols 2>/dev/null || missing=1
-    command -v cc >/dev/null 2>&1 || missing=1
-    return $missing
-}
+# ---------------------------------------------------------------------------
+# Helpers used by the dependency step and by failure reporting
 
 sudo_warmup() {
     # `sudo` prompts on the controlling terminal; a backgrounded job (the
@@ -229,62 +201,17 @@ sudo_warmup() {
     fi
 }
 
-install_deps() {
-    if ! missing_deps; then
-        ui_ok "dependencies" "build toolchain already present"
-        return 0
-    fi
-    if [ "$INSTALL_DEPS" -eq 0 ]; then
-        ui_skip "dependencies" "missing (--no-deps)"
-        return 0
-    fi
-    if [ "$DRY_RUN" -eq 1 ]; then
-        ui_skip "dependencies" "[dry-run] would install: $PACKAGES"
-        return 0
-    fi
-    detect_packages
-    if [ -z "$PACKAGES" ]; then
-        # Unknown distribution: try the most common package names instead of
-        # silently skipping, so a missing toolchain is caught here.
-        PACKAGES="gcc make pkg-config wayland-devel wayland-protocols-devel pam-devel fontconfig-devel libxkbcommon-devel"
-        ui_warn "unknown distribution: trying generic package names"
-    fi
-    local pm=""
-    for candidate in pacman apt-get dnf zypper; do
-        command -v "$candidate" >/dev/null 2>&1 && { pm="$candidate"; break; }
-    done
-    [ -n "$pm" ] || { ui_warn "no package manager found; install manually: $PACKAGES"; return 0; }
-    sudo_warmup
-    case "$pm" in
-        pacman)
-            run_spin "dependencies" as_root pacman -S --needed --noconfirm $PACKAGES ;;
-        apt-get)
-            as_root apt-get update >>"$LOG_FILE" 2>&1 || true
-            DEBIAN_FRONTEND=noninteractive run_spin "dependencies" as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y $PACKAGES ;;
-        dnf)
-            run_spin "dependencies" as_root dnf install -y $PACKAGES ;;
-        zypper)
-            run_spin "dependencies" as_root zypper --non-interactive install $PACKAGES ;;
-    esac || die "could not install the build dependencies (see $LOG_FILE)"
-    if missing_deps; then
-        ui_fail "dependencies still missing after the installation"
-        missing_report
-        die "install them and run the installer again"
-    fi
-    ui_ok "dependencies" "installed with $pm"
-}
-
-# smithay-client-toolkit 0.21 generates bindings from wayland-client and
-# wayland-protocols at build time: too old a tree fails inside its build script.
 version_ge() { # version_ge HAVE NEED
     [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]
 }
 
+# smithay-client-toolkit 0.21 generates bindings from wayland-client and
+# wayland-protocols at build time: too old a tree fails inside its build script.
 protocol_requirements() {
     local client protocols scanner datadir bad=0
     client="$(pkg-config --modversion wayland-client 2>/dev/null || echo 0)"
     protocols="$(pkg-config --modversion wayland-protocols 2>/dev/null || echo 0)"
-    scanner="$(wayland-scanner --version 2>/dev/null | awk '{print $NF}' || echo 0)"
+    scanner="$(wayland-scanner --version 2>/dev/null | awk '{print $NF}' || true)"; scanner="${scanner:-0}"
     datadir="$(pkg-config --variable=pkgdatadir wayland-protocols 2>/dev/null || true)"
     version_ge "$client" "1.20" || { ui_warn "wayland-client $client is too old (need >= 1.20)"; bad=1; }
     version_ge "$scanner" "1.20" || { ui_warn "wayland-scanner $scanner is too old (need >= 1.20)"; bad=1; }
@@ -292,8 +219,6 @@ protocol_requirements() {
         ui_warn "wayland-protocols $protocols is too old: smithay-client-toolkit 0.21 needs >= 1.31"
         bad=1
     fi
-    # The build script reads the XML files from the package datadir: a .pc that
-    # points at a tree without ext-session-lock-v1 is the classic failure.
     if [ -n "$datadir" ]; then
         for xml in stable/ext-session-lock/ext-session-lock-v1.xml \
                    staging/ext-session-lock/ext-session-lock-v1.xml \
@@ -304,15 +229,13 @@ protocol_requirements() {
     if [ "$bad" -eq 1 ]; then
         ui_warn "how to fix:"
         ui_warn "  Arch:    pacman -S --needed wayland wayland-protocols"
-        ui_warn "  Debian:  apt install wayland-protocols (bookworm+; jammy ships 1.25 -> too old)"
-        ui_warn "  Fedora:  dnf install wayland-protocols-devel"
-        ui_warn "  Ubuntu 22.04/Mint: build wayland-protocols >= 1.31 from source"
-        ui_warn "  (gitlab.freedesktop.org/wayland/wayland-protocols, meson setup build --prefix=/usr/local)"
+        ui_warn "  Debian:  apt install wayland-protocols libwayland-bin (bookworm+)"
+        ui_warn "  Fedora:  dnf install wayland-devel wayland-protocols-devel"
+        ui_warn "  Ubuntu 22.04/Mint ship wayland-protocols 1.25 (too old): upgrade or build 1.31+ from source"
     fi
     return $bad
 }
 
-# Everything a build failure report needs to be actionable without a back-and-forth.
 build_diagnostics() {
     {
         echo "--- diagnostics ---"
@@ -321,25 +244,167 @@ build_diagnostics() {
         echo "rustc:   $(rustc -V 2>/dev/null || echo missing)"
         echo "cargo:   $(cargo -V 2>/dev/null || echo missing)"
         echo "cc:      $(cc --version 2>/dev/null | head -1 || echo missing)"
-        echo "wayland-client:  $(pkg-config --modversion wayland-client 2>/dev/null || echo missing)"
+        echo "wayland-client:    $(pkg-config --modversion wayland-client 2>/dev/null || echo missing)"
         echo "wayland-protocols: $(pkg-config --modversion wayland-protocols 2>/dev/null || echo missing)"
-        echo "wayland-scanner: $(wayland-scanner --version 2>/dev/null || echo missing)"
+        echo "wayland-scanner:   $(wayland-scanner --version 2>/dev/null || echo missing)"
         echo "xkbcommon: $(pkg-config --modversion xkbcommon 2>/dev/null || echo missing)"
-        echo "libpam:    $(pkg-config --modversion pam 2>/dev/null || pkg-config --modversion libpam 2>/dev/null || echo missing)"
     } | tee -a "$LOG_FILE" >&2
 }
 
-# Name exactly what is missing, so the message is actionable.
-missing_report() {
+# ---------------------------------------------------------------------------
+# Dependencies: detect what is missing, install it with the system package
+# manager, then verify it. Nothing here is distro-guessed: every requirement has
+# its own probe and its own package name per distro family.
+
+FAMILY=""
+detect_family() {
+    local id=""
+    if [ -r /etc/os-release ]; then
+        # shellcheck disable=SC1091
+        id="$( . /etc/os-release; printf '%s %s' "${ID:-}" "${ID_LIKE:-}" )"
+    fi
+    case "$id" in
+        *arch*|*manjaro*|*endeavour*|*cachy*) FAMILY=arch ;;
+        *debian*|*ubuntu*|*mint*|*pop*) FAMILY=debian ;;
+        *fedora*|*rhel*|*centos*|*rocky*|*alma*) FAMILY=fedora ;;
+        *suse*|*opensuse*) FAMILY=suse ;;
+        *) FAMILY=unknown ;;
+    esac
+}
+
+# component → package(s) for the detected family
+pkg_for() {
+    case "$1:$FAMILY" in
+        cc:arch) echo gcc ;;            cc:debian) echo gcc ;;
+        cc:fedora) echo gcc ;;          cc:suse) echo gcc ;;
+        cc:unknown) echo gcc ;;
+        make:arch) echo make ;;         make:debian) echo make ;;
+        make:fedora) echo make ;;       make:suse) echo make ;;
+        pkgconf:arch) echo pkgconf ;;   pkgconf:debian) echo pkg-config ;;
+        pkgconf:fedora) echo pkgconf-pkg-config ;; pkgconf:suse) echo pkg-config ;;
+        wayland:arch) echo "wayland wayland-protocols" ;;
+        wayland:debian) echo "libwayland-dev libwayland-bin wayland-protocols" ;;
+        wayland:fedora) echo "wayland-devel wayland-protocols-devel" ;;
+        wayland:suse) echo "wayland-devel wayland-protocols-devel" ;;
+        scanner:arch) echo wayland ;;
+        scanner:debian) echo "libwayland-bin libwayland-dev" ;;
+        scanner:fedora) echo "wayland-devel" ;;
+        scanner:suse) echo "wayland-devel" ;;
+        protocols:arch) echo wayland-protocols ;;
+        protocols:debian) echo wayland-protocols ;;
+        protocols:fedora) echo wayland-protocols-devel ;;
+        protocols:suse) echo wayland-protocols-devel ;;
+        pam:arch) echo pam ;;
+        pam:debian) echo libpam0g-dev ;;
+        pam:fedora) echo pam-devel ;;
+        pam:suse) echo pam-devel ;;
+        fontconfig:arch) echo fontconfig ;;
+        fontconfig:debian) echo libfontconfig1-dev ;;
+        fontconfig:fedora) echo fontconfig-devel ;;
+        fontconfig:suse) echo fontconfig-devel ;;
+        xkbcommon:arch) echo libxkbcommon ;;
+        xkbcommon:debian) echo libxkbcommon-dev ;;
+        xkbcommon:fedora) echo libxkbcommon-devel ;;
+        xkbcommon:suse) echo libxkbcommon-devel ;;
+        vulkan:arch) echo vulkan-icd-loader ;;
+        vulkan:debian) echo libvulkan-dev ;;
+        vulkan:fedora) echo vulkan-loader-devel ;;
+        vulkan:suse) echo vulkan-devel ;;
+        *) ;;
+    esac
+}
+
+# Human readable fix for one component.
+hint_for() {
+    case "$1" in
+        cc) echo "C compiler (gcc or clang)" ;;
+        make) echo "make" ;;
+        pkgconf) echo "pkg-config" ;;
+        wayland) echo "wayland client headers" ;;
+        scanner) echo "wayland-scanner (protocol code generator)" ;;
+        protocols) echo "wayland-protocols >= 1.31 (ext-session-lock-v1)" ;;
+        pam) echo "PAM development headers" ;;
+        fontconfig) echo "fontconfig development headers" ;;
+        xkbcommon) echo "xkbcommon development headers" ;;
+        vulkan) echo "Vulkan loader" ;;
+        *) echo "$1" ;;
+    esac
+}
+
+# One line per missing requirement.
+missing_components() {
     { command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 \
-        || command -v clang >/dev/null 2>&1; } \
-        || ui_warn "missing: C compiler (gcc or clang)"
-    command -v pkg-config >/dev/null 2>&1 || ui_warn "missing: pkg-config"
-    for lib in wayland-client wayland-protocols libpam fontconfig xkbcommon; do
-        pkg-config --exists "$lib" 2>/dev/null || ui_warn "missing: $lib development headers"
+        || command -v clang >/dev/null 2>&1; } || echo cc
+    command -v make >/dev/null 2>&1 || echo make
+    command -v pkg-config >/dev/null 2>&1 || echo pkgconf
+    pkg-config --exists wayland-client 2>/dev/null || echo wayland
+    command -v wayland-scanner >/dev/null 2>&1 || echo scanner
+    pkg-config --exists wayland-protocols 2>/dev/null || echo protocols
+    pkg-config --exists libpam 2>/dev/null || echo pam
+    pkg-config --exists fontconfig 2>/dev/null || echo fontconfig
+    pkg-config --exists xkbcommon 2>/dev/null || echo xkbcommon
+    pkg-config --exists vulkan 2>/dev/null || echo vulkan
+}
+
+missing_deps() { [ -n "$(missing_components)" ]; }
+
+package_manager() {
+    for candidate in pacman apt-get dnf zypper; do
+        command -v "$candidate" >/dev/null 2>&1 && { printf '%s' "$candidate"; return 0; }
     done
-    command -v wayland-scanner >/dev/null 2>&1 \
-        || ui_warn "missing: wayland-scanner (libwayland-bin on Debian, wayland on Arch)"
+    printf ''
+}
+
+install_deps() {
+    detect_family
+    local missing
+    missing="$(missing_components)"
+    if [ -z "$missing" ]; then
+        ui_ok "dependencies" "everything already installed"
+        return 0
+    fi
+    if [ "$INSTALL_DEPS" -eq 0 ]; then
+        ui_skip "dependencies" "missing (--no-deps): $(echo "$missing" | tr '\n' ' ')"
+        return 0
+    fi
+    # The list is built from what is actually missing, per component.
+    local packages="" component
+    while IFS= read -r component; do
+        [ -n "$component" ] || continue
+        packages="$packages $(pkg_for "$component")"
+    done <<< "$missing"
+    packages="$(printf '%s\n' $packages | sort -u | tr '\n' ' ')"
+    if [ -z "${packages// /}" ]; then
+        ui_warn "unknown distribution: install manually: $(echo "$missing" | tr '\n' ' ')"
+        return 0
+    fi
+    if [ "$DRY_RUN" -eq 1 ]; then
+        ui_skip "dependencies" "[dry-run] would install: $packages"
+        return 0
+    fi
+    local pm; pm="$(package_manager)"
+    [ -n "$pm" ] || { ui_warn "no package manager found; install manually: $packages"; return 0; }
+    ui_step "dependencies" "installing: $packages"
+    sudo_warmup
+    case "$pm" in
+        pacman) run_spin "dependencies" as_root pacman -S --needed --noconfirm $packages ;;
+        apt-get)
+            as_root apt-get update >>"$LOG_FILE" 2>&1 || true
+            run_spin "dependencies" as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y $packages ;;
+        dnf) run_spin "dependencies" as_root dnf install -y $packages ;;
+        zypper) run_spin "dependencies" as_root zypper --non-interactive install $packages ;;
+    esac || die "could not install: $packages (see $LOG_FILE)"
+
+    missing="$(missing_components)"
+    if [ -n "$missing" ]; then
+        ui_fail "still missing after the installation:"
+        while IFS= read -r component; do
+            [ -n "$component" ] || continue
+            ui_warn "  $(hint_for "$component") → $(pkg_for "$component" | tr '\n' ' ')"
+        done <<< "$missing"
+        die "install them and run the installer again"
+    fi
+    ui_ok "dependencies" "installed: $packages"
 }
 
 # rustc links with `cc`; when only `gcc`/`clang` exist we point it there instead
