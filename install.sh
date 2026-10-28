@@ -580,6 +580,32 @@ install_wallpaper_daemon() {
     return 0
 }
 
+# The shortcuts used on the development machine, shipped with the sources and
+# installed on every target (with a backup and without duplicating the include).
+install_niri_binds() {
+    local dir="${XDG_CONFIG_HOME:-$HOME/.config}/niri"
+    local cfg="$dir/config.kdl"
+    if [ ! -d "$dir" ]; then
+        ui_skip "shortcuts" "no ~/.config/niri"
+        return 0
+    fi
+    if [ "$DRY_RUN" -eq 1 ]; then
+        ui_skip "shortcuts" "[dry-run] would install lard/binds.kdl and include it"
+        return 0
+    fi
+    mkdir -p "$dir/lard"
+    [ -f "$dir/lard/binds.kdl" ] && cp -a "$dir/lard/binds.kdl" "$dir/lard/binds.kdl.bak-$(date +%Y%m%d%H%M%S)"
+    install -Dm644 "$SCRIPT_DIR/config/niri/binds.kdl" "$dir/lard/binds.kdl"
+    if [ -n "${TERMINAL:-}" ] && [ "$TERMINAL" != "kitty" ]; then
+        sed -i "s|spawn \"kitty\"|spawn \"$TERMINAL\"|g" "$dir/lard/binds.kdl"
+    fi
+    if [ -f "$cfg" ] && ! grep -q 'lard/binds.kdl' "$cfg"; then
+        cp -a "$cfg" "$cfg.bak-$(date +%Y%m%d%H%M%S)"
+        printf '\n// >>> lard shortcuts\ninclude "lard/binds.kdl"\n// <<< lard shortcuts\n' >> "$cfg"
+    fi
+    ui_ok "shortcuts" "lard/binds.kdl installed (Mod+Space launcher, Mod+T terminal, Mod+Shift+Space wallpapers)"
+}
+
 # Install a package only when its command/unit is missing.
 have() { command -v "$1" >/dev/null 2>&1; }
 
@@ -846,6 +872,29 @@ ask_boot() {
     return 0
 }
 
+# No display manager: starting a login on tty1 launches niri (and LARD with it).
+install_tty_autostart() {
+    local profile="$HOME/.bash_profile"
+    if [ "$DRY_RUN" -eq 1 ]; then
+        ui_skip "boot" "[dry-run] would add niri-session to ~/.bash_profile"
+        return 0
+    fi
+    if grep -q '>>> lard autologin' "$profile" 2>/dev/null; then
+        ui_ok "boot" "niri-session already in ~/.bash_profile"
+        return 0
+    fi
+    [ -f "$profile" ] && cp -a "$profile" "$profile.bak-$(date +%Y%m%d%H%M%S)"
+    cat >> "$profile" <<'EOP'
+
+# >>> lard autologin
+if [ -z "$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
+    exec niri-session
+fi
+# <<< lard autologin
+EOP
+    ui_ok "boot" "niri starts on tty1 login (~/.bash_profile)"
+}
+
 install_boot() {
     [ "$DRY_RUN" -eq 1 ] && { ask_boot; ui_skip "boot" "[dry-run] mode: $BOOT_MODE"; return 0; }
     [ "$USER_MODE" -eq 1 ] && { ui_skip "boot" "not handled with --user"; return 0; }
@@ -876,6 +925,11 @@ install_boot() {
     fi
     sudo_warmup
     local greetd_cfg=/etc/greetd/config.toml
+    if ! have greetd && [ ! -f /usr/bin/greetd ] && [ ! -f /usr/sbin/greetd ]; then
+        ui_warn "greetd is not installed: falling back to niri-session on tty1"
+        install_tty_autostart
+        return 0
+    fi
     if [ -f "$greetd_cfg" ]; then
         as_root cp -a "$greetd_cfg" "$greetd_cfg.bak-$(date +%Y%m%d%H%M%S)" || true
     fi
@@ -889,6 +943,13 @@ install_boot() {
         as_root systemctl enable greetd.service >>"$LOG_FILE" 2>&1 \
             && ui_ok "boot" "greetd enabled (LARD greeter -> niri session)" \
             || ui_warn "cannot enable greetd.service"
+    fi
+    if [ "$DRY_RUN" -eq 0 ] && command -v systemctl >/dev/null 2>&1; then
+        if ! as_root systemctl is-active greetd.service >/dev/null 2>&1; then
+            ui_warn "greetd did not start: falling back to niri-session on tty1"
+            install_tty_autostart
+            return 0
+        fi
     fi
     if ! have sway; then
         ui_step "boot" "installing sway (host compositor for the greeter)"
@@ -1067,6 +1128,7 @@ EOF
     fi
 
     enable_autostart
+    install_niri_binds
     install_boot
     setup_system
 
