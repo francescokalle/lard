@@ -1363,6 +1363,38 @@ impl Shell {
         self.dirty = true;
     }
 
+    /// Translate a press inside an open panel to the status item it landed on.
+    ///
+    /// The panel is a full-screen surface and it redraws the bar row it grew
+    /// from in its own top strip, in the same place as the bar: the two
+    /// coordinate systems match once the bar margin is removed.
+    fn status_press(&mut self, pos: Point) -> Option<(PopoverKind, f32, Option<(Rect, f32, BarIsland)>)> {
+        let margin = self.config.bar.margin;
+        if pos.y < margin || pos.y > margin + self.config.bar.height {
+            return None;
+        }
+        let local = Point::new(pos.x - margin, pos.y - margin);
+        let output = self
+            .niri
+            .focused_output
+            .clone()
+            .or_else(|| self.bars.keys().next().cloned())?;
+        let press = self.bars.get_mut(&output)?.press(local)?;
+        let (kind, x) = press.popover?;
+        let island = match kind {
+            PopoverKind::Battery | PopoverKind::System | PopoverKind::ControlCenter => BarIsland::Right,
+            PopoverKind::Clock | PopoverKind::Notifications => BarIsland::Center,
+            _ => return None,
+        };
+        // Only the island the panel grew from is drawn over it.
+        if self.popover.origin_island() != Some(island) {
+            return None;
+        }
+        let anchor = margin + x;
+        let origin = self.island_origin(island);
+        Some((kind, anchor, origin))
+    }
+
     pub fn close_popover(&mut self) {
         self.popover.close();
         self.control.cancel_password();
@@ -1525,6 +1557,18 @@ impl Shell {
     }
 
     pub fn popover_press(&mut self, pos: Point) {
+        // The island row drawn on top of the panel stays live: pressing
+        // another status item (battery, CPU, RAM, the button) switches panels
+        // instead of just closing.
+        if let Some((kind, anchor, origin)) = self.status_press(pos) {
+            if kind == self.popover.kind() {
+                self.popover.close();
+            } else {
+                self.open_popover_at(kind, anchor, origin);
+            }
+            self.dirty = true;
+            return;
+        }
         if self.popover.expanded_page().is_some() {
             let panel = self.popover.content_rect();
             if let Some(command) = self.control.embedded_press(pos, panel) {
@@ -2766,5 +2810,44 @@ mod tests {
         );
         let action = dock.press(Point::new(size.w * 0.5, size.h * 0.5));
         assert!(matches!(action, Some(ShellAction::Spawn(_))));
+    }
+
+    #[test]
+    fn status_items_switch_panels_while_one_is_open() {
+        let config = Config::default();
+        let bar_height = config.bar.height;
+        let margin = config.bar.margin;
+        let mut shell = Shell::new(config);
+        shell.niri = demo_niri();
+        shell.battery.present = true;
+        shell.battery.percent = 64;
+        // The bar must have been drawn once: the hit areas come from it.
+        let mut scene = Scene::new();
+        shell.build_bar(&mut scene, "eDP-1", Size::new(1600.0, bar_height));
+        shell.open_controls_popover();
+        assert_eq!(shell.popover.kind(), PopoverKind::ControlCenter);
+
+        // Walk the island row of the drawn panel: the battery item must answer
+        // even though the control center is open in front of it.
+        let y = margin + bar_height * 0.5;
+        let mut battery_x = None;
+        let mut x = margin;
+        while x < 1600.0 {
+            if let Some((kind, _, _)) = shell.status_press(Point::new(x, y))
+                && kind == PopoverKind::Battery
+            {
+                battery_x = Some(x);
+                break;
+            }
+            x += 2.0;
+        }
+        let battery_x = battery_x.expect("battery item must be reachable with a panel open");
+
+        shell.popover_press(Point::new(battery_x, y));
+        assert_eq!(shell.popover.kind(), PopoverKind::Battery);
+
+        // Pressing the same item again closes the panel, like a toggle.
+        shell.popover_press(Point::new(battery_x, y));
+        assert!(!shell.popover.is_open());
     }
 }

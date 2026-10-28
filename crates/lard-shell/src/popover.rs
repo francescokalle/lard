@@ -171,6 +171,7 @@ impl Popover {
         anchor_x: f32,
         origin: Option<(Rect, f32, BarIsland)>,
     ) {
+        let switching = self.open && self.kind != kind;
         self.origin = origin.map(|(rect, radius, _)| (rect, radius));
         self.origin_island = origin.map(|(_, _, island)| island);
         tracing::debug!(origin = ?self.origin, island = ?self.origin_island, "popover open");
@@ -186,6 +187,12 @@ impl Popover {
         self.open = true;
         if self.reduce_motion {
             self.progress.snap_to(1.0);
+        } else if switching {
+            // Another panel was open: instead of jumping to a different size,
+            // the card goes back onto its island and grows again as the new
+            // one. The island row stays on screen, so nothing blinks.
+            self.progress.snap_to(0.0);
+            self.progress.set_target(1.0);
         } else {
             self.progress.set_target(1.0);
         }
