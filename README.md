@@ -17,7 +17,7 @@ barra a 3 isole ─ dock ─ launcher fuzzy ─ OSD ─ notifiche ─ control ce
 ## Installazione in un comando
 
 ```bash
-curl -fsSL https://install-lard.francescocallegaro.com | bash
+curl -fsSL https://lard.francescocallegaro.com/install.sh | bash
 ```
 
 Lo script scarica il repository, compila in release e **abilita l'avvio

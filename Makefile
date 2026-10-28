@@ -19,7 +19,7 @@ preview:
 	cargo run -p lard-shell --example preview
 
 # Pubblica site/ sul branch gh-pages (https://francescokalle.github.io/lard/,
-# e su install-lard.francescocallegaro.com quando il CNAME è attivo).
+# e su lard.francescocallegaro.com quando il CNAME è attivo).
 site-publish:
 	@command -v rsync >/dev/null || { echo "serve rsync"; exit 1; }
 	git worktree add -B gh-pages .site-publish gh-pages 2>/dev/null || git worktree add -B gh-pages .site-publish

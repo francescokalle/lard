@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # LARD — installazione con un comando.
 #
-#   curl -fsSL https://install-lard.francescocallegaro.com | bash
-#   curl -fsSL https://install-lard.francescocallegaro.com | bash -s -- --install-deps
+#   curl -fsSL https://lard.francescocallegaro.com/install.sh | bash
+#   curl -fsSL https://lard.francescocallegaro.com/install.sh | bash -s -- --install-deps
 #
 # Scarica il repository in una directory temporanea ed esegue il vero
 # install.sh (che compila e installa). Tutti gli argomenti vengono passati
