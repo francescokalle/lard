@@ -204,7 +204,7 @@ impl Osd {
         }
         if self.muted && is_volume {
             scene.text_center_y(
-                "audio disattivato",
+                "audio muted",
                 card.x,
                 card.y + 44.0,
                 TextStyle {

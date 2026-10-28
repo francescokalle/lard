@@ -52,7 +52,7 @@ fn main() -> anyhow::Result<()> {
         discovering: false,
     };
     shell.clock = "14:32".into();
-    shell.date = "mar 20 ott".into();
+    shell.date = "Tue 27 Oct".into();
     shell.system = lard_services::system::SystemStats {
         cpu_percent: 25,
         memory_percent: 27,
@@ -119,7 +119,7 @@ fn main() -> anyhow::Result<()> {
         discovering: false,
     };
     shell.clock = "14:32".into();
-    shell.date = "mar 20 ott".into();
+    shell.date = "Tue 27 Oct".into();
     shell.brightness = 72;
     shell.brightness_present = true;
     shell.system = lard_services::system::SystemStats {
@@ -272,7 +272,7 @@ fn main() -> anyhow::Result<()> {
         discovering: false,
     };
     shell.clock = "14:32".into();
-    shell.date = "mar 20 ott".into();
+    shell.date = "Tue 27 Oct".into();
     shell.brightness = 72;
     shell.brightness_present = true;
     shell.toggle_control();
@@ -358,7 +358,7 @@ fn main() -> anyhow::Result<()> {
             app_name: "System".into(),
             app_icon: String::new(),
             summary: "Aggiornamenti disponibili".into(),
-            body: "3 pacchetti pronti per l'installazione".into(),
+            body: "3 packages ready to install".into(),
             actions: vec![lard_services::notifications::NotificationAction {
                 key: "update".into(),
                 label: "Aggiorna".into(),

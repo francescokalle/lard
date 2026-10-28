@@ -97,12 +97,12 @@ impl PamError {
     #[must_use]
     pub const fn user_message(self) -> &'static str {
         match self {
-            Self::InvalidCredentials => "Credenziali non valide",
-            Self::AccountExpired => "Account non più valido",
-            Self::PasswordExpired => "Password scaduta",
-            Self::ServiceUnavailable => "Servizio di autenticazione non disponibile",
+            Self::InvalidCredentials => "Invalid credentials",
+            Self::AccountExpired => "Account no longer valid",
+            Self::PasswordExpired => "Password expired",
+            Self::ServiceUnavailable => "Authentication service unavailable",
             Self::Configuration | Self::Conversation | Self::Internal(_) => {
-                "Autenticazione non riuscita"
+                "Authentication failed"
             }
         }
     }
@@ -365,7 +365,7 @@ mod tests {
     fn error_messages_are_generic() {
         assert_eq!(
             PamError::Internal(99).user_message(),
-            "Autenticazione non riuscita"
+            "Authentication failed"
         );
         assert!(!PamError::Internal(99).user_message().contains("99"));
     }

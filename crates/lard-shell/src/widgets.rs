@@ -209,7 +209,7 @@ pub fn system_monitor(
     );
     scene.text(
         format!(
-            "{} core · carico {:.2}  {:.2}  {:.2}",
+            "{} cores · load {:.2}  {:.2}  {:.2}",
             system.cpu_count, system.load[0], system.load[1], system.load[2]
         ),
         Point::new(panel.x + 18.0, panel.y + 64.0),
@@ -229,7 +229,7 @@ pub fn system_monitor(
     );
     scene.text(
         format!(
-            "{:.1} / {:.1} GB in uso",
+            "{:.1} / {:.1} GB used",
             f32::from(system.memory_used_mb as u16) / 1024.0,
             f32::from(system.memory_total_mb as u16) / 1024.0
         ),
@@ -243,7 +243,7 @@ pub fn system_monitor(
     process_list(
         scene,
         Rect::new(panel.x, panel.y + 150.0, panel.w, 120.0),
-        "Processi · CPU",
+        "Processes · CPU",
         &system.top_cpu,
         config,
         p,
@@ -251,14 +251,14 @@ pub fn system_monitor(
     process_list(
         scene,
         Rect::new(panel.x, panel.y + 278.0, panel.w, 120.0),
-        "Processi · memoria",
+        "Processes · memory",
         &system.top_mem,
         config,
         p,
     );
     let uptime = system.uptime_secs;
     scene.text(
-        format!("Attivo da {}h {:02}m", uptime / 3600, (uptime % 3600) / 60),
+        format!("Up {}h {:02}m", uptime / 3600, (uptime % 3600) / 60),
         Point::new(panel.x + 18.0, panel.y + 404.0),
         TextStyle {
             size: fonts.size_small - 1.0,
@@ -293,7 +293,7 @@ pub fn process_list(
     );
     if processes.is_empty() {
         scene.text(
-            "nessun processo",
+            "no processes",
             Point::new(rect.x + 18.0, rect.y + 20.0),
             TextStyle {
                 size: fonts.size_small - 1.0,

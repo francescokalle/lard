@@ -431,7 +431,7 @@ fn deadline(timeout_ms: u32) -> Option<Instant> {
 
 fn display_app(notification: &Notification) -> String {
     if notification.app_name.is_empty() {
-        "Notifica".to_string()
+        "Notification".to_string()
     } else {
         truncate(&notification.app_name, 36)
     }

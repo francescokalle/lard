@@ -1083,7 +1083,7 @@ mod tests {
                 ..SystemStats::default()
             },
             clock: "12:00",
-            date: "mar 20 ott",
+            date: "Tue 27 Oct",
             dnd: false,
             active_toasts: 0,
             toast: None,
@@ -1138,7 +1138,7 @@ mod tests {
             wifi_enabled: true,
             system: &SystemStats::default(),
             clock: "12:00",
-            date: "mar 20 ott",
+            date: "Tue 27 Oct",
             dnd: false,
             active_toasts: 0,
             toast: None,
@@ -1184,7 +1184,7 @@ mod tests {
             wifi_enabled: true,
             system: &SystemStats::default(),
             clock: "12:00",
-            date: "mar 20 ott",
+            date: "Tue 27 Oct",
             dnd: false,
             active_toasts: 1,
             toast: Some(ToastHeadline {
@@ -1208,7 +1208,7 @@ mod tests {
         // The centre island steps aside: the notification is drawn on its own
         // overlay surface, so the clock is not shown next to it.
         assert!(!labels.contains(&"12:00"), "{labels:?}");
-        assert!(!labels.contains(&"mar 20 ott"), "{labels:?}");
+        assert!(!labels.contains(&"Tue 27 Oct"), "{labels:?}");
     }
 
     #[test]
@@ -1227,7 +1227,7 @@ mod tests {
             wifi_enabled: true,
             system: &SystemStats::default(),
             clock: "12:00",
-            date: "mar 20 ott",
+            date: "Tue 27 Oct",
             dnd: false,
             active_toasts: 0,
             toast: None,
@@ -1287,7 +1287,7 @@ mod tests {
                 ..SystemStats::default()
             },
             clock: "12:00",
-            date: "mar 20 ott",
+            date: "Tue 27 Oct",
             dnd: false,
             active_toasts: 0,
             toast: None,

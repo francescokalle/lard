@@ -17,11 +17,11 @@ impl PowerAction {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Self::PowerOff => "Spegni",
-            Self::Reboot => "Riavvia",
-            Self::Suspend => "Sospendi",
-            Self::Lock => "Blocca",
-            Self::Logout => "Esci",
+            Self::PowerOff => "Power off",
+            Self::Reboot => "Restart",
+            Self::Suspend => "Suspend",
+            Self::Lock => "Lock",
+            Self::Logout => "Log out",
         }
     }
 }

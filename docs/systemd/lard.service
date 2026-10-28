@@ -1,6 +1,6 @@
-# Servizio utente opzionale. niri di solito avvia la shell con
-# `spawn-at-startup`, che eredita WAYLAND_DISPLAY e NIRI_SOCKET.
-# Se usi systemd, importa l'ambiente prima di avviarlo:
+# Optional user service. niri usually starts the shell with `spawn-at-startup`,
+# which inherits WAYLAND_DISPLAY and NIRI_SOCKET. If you use systemd, import the
+# environment before starting it:
 #   systemctl --user import-environment WAYLAND_DISPLAY NIRI_SOCKET XDG_RUNTIME_DIR
 #   systemctl --user start lard.service
 [Unit]
@@ -13,8 +13,8 @@ Type=simple
 ExecStart=/usr/local/bin/lard
 Restart=on-failure
 RestartSec=2
-# 78 = EX_CONFIG: nessun compositore Wayland (es. shell avviata prima di niri).
-# Senza questa riga il servizio riprova ogni 2 s all'infinito.
+# 78 = EX_CONFIG: no Wayland compositor (e.g. the shell started before niri).
+# Without this line the service would retry every 2 s forever.
 RestartPreventExitStatus=78
 Environment=RUST_LOG=info
 

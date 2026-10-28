@@ -104,7 +104,7 @@ impl AuthController {
         std::thread::Builder::new()
             .name("auth-worker".into())
             .spawn(move || worker(rx, ui, backend, service, allow_empty))
-            .map_err(|e| format!("impossibile avviare auth worker: {e}"))?;
+            .map_err(|e| format!("cannot start the auth worker: {e}"))?;
 
         Ok(Self { tx, backend })
     }
@@ -196,7 +196,7 @@ fn greetd_login(job: &AuthJob) -> Result<AuthOutcome, String> {
             Step::Error { description } => {
                 client.cancel();
                 return Err(if description.is_empty() {
-                    "Credenziali non valide".into()
+                    "Invalid credentials".into()
                 } else {
                     description
                 });
@@ -205,5 +205,5 @@ fn greetd_login(job: &AuthJob) -> Result<AuthOutcome, String> {
     }
 
     client.cancel();
-    Err("Troppi passaggi di autenticazione".into())
+    Err("Too many authentication steps".into())
 }

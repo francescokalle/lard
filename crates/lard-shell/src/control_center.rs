@@ -414,7 +414,7 @@ impl ControlCenter {
                 self.build_bluetooth(scene, panel, content_x, content_w, data, config, p);
             }
             ControlPage::System => {
-                self.page_header(scene, panel, content_x, p, "Monitor di sistema", config);
+                self.page_header(scene, panel, content_x, p, "System monitor", config);
                 crate::widgets::system_monitor(
                     scene,
                     Rect::new(panel.x, panel.y + 26.0, panel.w, panel.h - 26.0),
@@ -657,7 +657,7 @@ impl ControlCenter {
                 self.build_bluetooth(scene, panel, content_x, content_w, data, config, content_p);
             }
             ControlPage::System => {
-                self.page_header(scene, panel, content_x, content_p, "Monitor di sistema", config);
+                self.page_header(scene, panel, content_x, content_p, "System monitor", config);
                 crate::widgets::system_monitor(
                     scene,
                     Rect::new(panel.x, panel.y + 26.0, panel.w, panel.h - 26.0),
@@ -667,7 +667,7 @@ impl ControlCenter {
                 );
             }
             ControlPage::Power => {
-                self.page_header(scene, panel, content_x, content_p, "Alimentazione", config);
+                self.page_header(scene, panel, content_x, content_p, "Power", config);
                 self.build_power(scene, panel, content_x, content_w, data, config, content_p);
             }
         }
@@ -688,7 +688,7 @@ impl ControlCenter {
         let fonts = &config.font;
 
         scene.text(
-            "Controlli",
+            "Controls",
             Point::new(content_x, panel.y + 18.0),
             TextStyle {
                 size: fonts.size_title,
@@ -741,7 +741,7 @@ impl ControlCenter {
                 if data.wifi_enabled {
                     truncate(&data.network.label(), 18)
                 } else {
-                    "Spento".into()
+                    "Off".into()
                 },
                 data.wifi_enabled,
                 Hit::WifiTile,
@@ -755,38 +755,38 @@ impl ControlCenter {
                 "Bluetooth".to_string(),
                 if data.bluetooth.present {
                     if data.bluetooth.powered {
-                        "Attivo".into()
+                        "Active".into()
                     } else {
-                        "Spento".into()
+                        "Off".into()
                     }
                 } else {
-                    "Assente".into()
+                    "Absent".into()
                 },
                 data.bluetooth.powered,
                 Hit::BluetoothTile,
             ),
             (
                 icons::DND,
-                "Non disturbare".to_string(),
+                "Do not disturb".to_string(),
                 if data.dnd {
-                    "Attivo".into()
+                    "Active".into()
                 } else {
-                    "Spento".into()
+                    "Off".into()
                 },
                 data.dnd,
                 Hit::Dnd,
             ),
             (
                 battery_icon,
-                "Batteria".to_string(),
+                "Battery".to_string(),
                 if data.battery.present {
                     if data.battery.charging {
-                        format!("{}% · in carica", data.battery.percent)
+                        format!("{}% · charging", data.battery.percent)
                     } else {
                         format!("{}%", data.battery.percent)
                     }
                 } else {
-                    "Assente".into()
+                    "Absent".into()
                 },
                 data.battery.charging,
                 Hit::Battery,
@@ -986,9 +986,9 @@ impl ControlCenter {
         );
         scene.text_center_y(
             if data.muted {
-                "Riattiva audio"
+                "Unmute"
             } else {
-                "Disattiva audio"
+                "Mute"
             },
             mute_rect.x + 34.0,
             mute_rect.center().y,
@@ -1019,7 +1019,7 @@ impl ControlCenter {
                 theme.text_muted.scale_alpha(0.9 * p),
             );
             scene.text(
-                "Luminosità",
+                "Brightness",
                 Point::new(content_x + 26.0, brightness_y),
                 TextStyle {
                     size: fonts.size_body,
@@ -1106,7 +1106,7 @@ impl ControlCenter {
             theme.text.scale_alpha(p),
         );
         scene.text(
-            "Sessione",
+            "Session",
             Point::new(avatar.right() + 12.0, session.y + 17.0),
             TextStyle {
                 size: fonts.size_small - 0.5,
@@ -1134,7 +1134,7 @@ impl ControlCenter {
             10.0,
         );
         scene.text_center_y(
-            "Blocca",
+            "Lock",
             lock_button.x,
             lock_button.center().y,
             TextStyle {
@@ -1159,7 +1159,7 @@ impl ControlCenter {
                 theme.radius.card(),
             );
             scene.text(
-                "Sistema",
+                "System",
                 Point::new(system.x + 14.0, system.y + 12.0),
                 TextStyle {
                     size: fonts.size_small - 0.5,
@@ -1178,9 +1178,9 @@ impl ControlCenter {
                 (
                     "Compositor",
                     if data.niri_connected {
-                        "niri · connesso".into()
+                        "niri · connected".into()
                     } else {
-                        "niri · assente".into()
+                        "niri · absent".into()
                     },
                 ),
             ];
@@ -1234,7 +1234,7 @@ impl ControlCenter {
             theme.accent.scale_alpha(p),
         );
         scene.text(
-            "Alimentazione",
+            "Power",
             Point::new(power.x + 42.0, power.y + 8.0),
             TextStyle {
                 size: fonts.size_body,
@@ -1244,7 +1244,7 @@ impl ControlCenter {
             theme.text.scale_alpha(p),
         );
         scene.text(
-            truncate("Blocca, esci, sospendi, riavvia, spegni", 42),
+            truncate("Lock, log out, suspend, restart, power off", 42),
             Point::new(power.x + 42.0, power.y + 25.0),
             TextStyle {
                 size: fonts.size_small - 0.5,
@@ -1338,20 +1338,20 @@ impl ControlCenter {
             (truncate(error, 38), theme.danger)
         } else if let Some(ssid) = data.wifi_connecting {
             (
-                format!("Connessione a {}…", truncate(ssid, 24)),
+                format!("Connecting to {}…", truncate(ssid, 24)),
                 theme.accent,
             )
         } else if !data.wifi_enabled {
-            ("Wi-Fi spento".into(), theme.text_muted)
+            ("Wi-Fi off".into(), theme.text_muted)
         } else if data.wifi_scanning {
-            ("Scansione…".into(), theme.text_muted)
+            ("Scanning…".into(), theme.text_muted)
         } else if data.network.is_connected() {
             (
-                format!("Connesso a {}", truncate(&data.network.label(), 24)),
+                format!("Connected to {}", truncate(&data.network.label(), 24)),
                 theme.text_muted,
             )
         } else {
-            ("Nessuna rete connessa".into(), theme.text_muted)
+            ("No network connected".into(), theme.text_muted)
         };
         scene.text(
             &status,
@@ -1411,7 +1411,7 @@ impl ControlCenter {
                 theme.text_muted.scale_alpha(0.8 * p),
             );
             scene.text_center_y(
-                "Wi-Fi spento",
+                "Wi-Fi off",
                 card.x,
                 card.y + 84.0,
                 TextStyle {
@@ -1424,7 +1424,7 @@ impl ControlCenter {
                 theme.text.scale_alpha(p),
             );
             scene.text_center_y(
-                "Attiva il Wi-Fi per vedere le reti disponibili.",
+                "Turn Wi-Fi on to see available networks.",
                 card.x,
                 card.y + 106.0,
                 TextStyle {
@@ -1443,7 +1443,7 @@ impl ControlCenter {
                 10.0,
             );
             scene.text_center_y(
-                "Attiva Wi-Fi",
+                "Turn Wi-Fi on",
                 button.x,
                 button.center().y,
                 TextStyle {
@@ -1477,9 +1477,9 @@ impl ControlCenter {
 
         if rows.is_empty() {
             let text = if data.wifi_scanning {
-                "Scansione delle reti…"
+                "Scanning networks…"
             } else {
-                "Nessuna rete trovata"
+                "No networks found"
             };
             scene.text_center_y(
                 text,
@@ -1566,7 +1566,7 @@ impl ControlCenter {
                     8.0,
                 );
                 scene.text_center_y(
-                    "Disconnetti",
+                    "Disconnect",
                     disconnect.x,
                     disconnect.center().y,
                     TextStyle {
@@ -1749,9 +1749,9 @@ impl ControlCenter {
         );
         scene.text(
             if enterprise {
-                "Accesso Wi-Fi"
+                "Wi-Fi login"
             } else {
-                "Password Wi-Fi"
+                "Wi-Fi password"
             },
             Point::new(card.x + 16.0, card.y + 14.0),
             TextStyle {
@@ -1781,7 +1781,7 @@ impl ControlCenter {
                 Rect::new(card.x + 16.0, y, field_w, 40.0),
                 icons::PERSON,
                 &self.password_identity.clone(),
-                "Nome utente",
+                "Username",
                 false,
                 self.password_focus == PasswordField::Identity,
                 Hit::WifiField(PasswordField::Identity),
@@ -1819,9 +1819,9 @@ impl ControlCenter {
         }
         scene.text(
             if enterprise {
-                "Rete 802.1X (PEAP/MSCHAPv2): le credenziali vengono salvate in NetworkManager. Tab cambia campo."
+                "802.1X network (PEAP/MSCHAPv2): credentials are stored in NetworkManager. Tab moves between fields."
             } else {
-                "La rete verrà salvata nelle connessioni di sistema."
+                "The network will be saved in the system connections."
             },
             Point::new(card.x + 16.0, y + 6.0),
             TextStyle {
@@ -1842,7 +1842,7 @@ impl ControlCenter {
             9.0,
         );
         scene.text_center_y(
-            "Annulla",
+            "Cancel",
             cancel.x,
             cancel.center().y,
             TextStyle {
@@ -1877,7 +1877,7 @@ impl ControlCenter {
             9.0,
         );
         scene.text_center_y(
-            "Connetti",
+            "Connect",
             connect.x,
             connect.center().y,
             TextStyle {
@@ -1923,20 +1923,20 @@ impl ControlCenter {
             (truncate(error, 38), theme.danger)
         } else if let Some(name) = connecting_name {
             (
-                format!("Connessione a {}…", truncate(name, 24)),
+                format!("Connecting to {}…", truncate(name, 24)),
                 theme.accent,
             )
         } else if !data.bluetooth.present {
-            ("Non disponibile".into(), theme.text_muted)
+            ("Unavailable".into(), theme.text_muted)
         } else if !data.bluetooth.powered {
-            ("Bluetooth spento".into(), theme.text_muted)
+            ("Bluetooth off".into(), theme.text_muted)
         } else if data.bt_scanning {
-            ("Scansione…".into(), theme.text_muted)
+            ("Scanning…".into(), theme.text_muted)
         } else if data.bluetooth_devices.is_empty() {
-            ("Nessun dispositivo".into(), theme.text_muted)
+            ("No devices".into(), theme.text_muted)
         } else {
             (
-                format!("{} dispositivi", data.bluetooth_devices.len()),
+                format!("{} devices", data.bluetooth_devices.len()),
                 theme.text_muted,
             )
         };
@@ -1986,8 +1986,8 @@ impl ControlCenter {
                 content_w,
                 &mut y,
                 icons::BLUETOOTH_OFF,
-                "Bluetooth non disponibile",
-                "Nessun adattatore Bluetooth rilevato.",
+                "Bluetooth unavailable",
+                "No Bluetooth adapter found.",
                 None,
                 config,
                 p,
@@ -2001,9 +2001,9 @@ impl ControlCenter {
                 content_w,
                 &mut y,
                 icons::BLUETOOTH_OFF,
-                "Bluetooth spento",
-                "Attiva il Bluetooth per cercare i dispositivi.",
-                Some((Hit::BtToggle(true), "Attiva Bluetooth")),
+                "Bluetooth off",
+                "Turn Bluetooth on to look for devices.",
+                Some((Hit::BtToggle(true), "Turn Bluetooth on")),
                 config,
                 p,
             );
@@ -2028,9 +2028,9 @@ impl ControlCenter {
 
         if rows.is_empty() {
             let text = if data.bt_scanning {
-                "Scansione in corso…"
+                "Scanning…"
             } else {
-                "Nessun dispositivo. Avvia la scansione."
+                "No devices. Start a scan."
             };
             scene.text_center_y(
                 text,
@@ -2110,17 +2110,17 @@ impl ControlCenter {
             );
 
             let (label, color) = if data.bt_connecting == Some(device.address.as_str()) {
-                ("Connessione…", theme.accent)
+                ("Connecting…", theme.accent)
             } else if device.connected {
                 if hovered {
-                    ("Disconnetti", theme.text_muted)
+                    ("Disconnect", theme.text_muted)
                 } else {
-                    ("Connesso", theme.accent)
+                    ("Connected", theme.accent)
                 }
             } else if device.paired {
-                ("Connetti", theme.text_muted)
+                ("Connect", theme.text_muted)
             } else {
-                ("Associa", theme.accent)
+                ("Pair", theme.accent)
             };
             scene.text_center_y(
                 label,
@@ -2300,7 +2300,7 @@ impl ControlCenter {
             theme.text.scale_alpha(p),
         );
         scene.text(
-            "Sessione",
+            "Session",
             Point::new(avatar.right() + 12.0, session.y + 12.0),
             TextStyle {
                 size: fonts.size_small - 0.5,
@@ -2320,9 +2320,9 @@ impl ControlCenter {
         );
         scene.text_center_y(
             if data.niri_connected {
-                "niri · connesso"
+                "niri · connected"
             } else {
-                "niri · assente"
+                "niri · absent"
             },
             session.right() - 120.0,
             session.center().y,
@@ -2336,15 +2336,15 @@ impl ControlCenter {
         );
 
         y = session.bottom() + 20.0;
-        self.section_label(scene, y, content_x, "Sessione", config, p);
+        self.section_label(scene, y, content_x, "Session", config, p);
         y += 22.0;
         self.power_row(
             scene,
             Rect::new(content_x, y, content_w, 54.0),
             icons::LOCK,
             PowerAction::Lock,
-            "Blocca",
-            "Blocca la sessione",
+            "Lock",
+            "Lock the session",
             false,
             config,
             p,
@@ -2355,23 +2355,23 @@ impl ControlCenter {
             Rect::new(content_x, y, content_w, 54.0),
             icons::LOGOUT,
             PowerAction::Logout,
-            "Esci",
-            "Termina la sessione",
+            "Log out",
+            "End the session",
             false,
             config,
             p,
         );
 
         y += 74.0;
-        self.section_label(scene, y, content_x, "Sistema", config, p);
+        self.section_label(scene, y, content_x, "System", config, p);
         y += 22.0;
         self.power_row(
             scene,
             Rect::new(content_x, y, content_w, 54.0),
             icons::NIGHT,
             PowerAction::Suspend,
-            "Sospendi",
-            "Metti il sistema in sospensione",
+            "Suspend",
+            "Put the system to sleep",
             false,
             config,
             p,
@@ -2382,8 +2382,8 @@ impl ControlCenter {
             Rect::new(content_x, y, content_w, 54.0),
             icons::RESTART,
             PowerAction::Reboot,
-            "Riavvia",
-            "Riavvia il sistema",
+            "Restart",
+            "Restart the system",
             false,
             config,
             p,
@@ -2394,15 +2394,15 @@ impl ControlCenter {
             Rect::new(content_x, y, content_w, 54.0),
             icons::POWER,
             PowerAction::PowerOff,
-            "Spegni",
-            "Spegni il sistema",
+            "Power off",
+            "Power off the system",
             true,
             config,
             p,
         );
 
         scene.text_center_y(
-            "Le azioni vengono eseguite immediatamente.",
+            "Actions run immediately.",
             content_x,
             panel.bottom() - 28.0,
             TextStyle {
@@ -2601,9 +2601,9 @@ impl ControlCenter {
         );
         scene.text_center_y(
             if scanning {
-                "Scansione…"
+                "Scanning…"
             } else {
-                "Scansiona"
+                "Scan"
             },
             rect.x + 28.0,
             rect.center().y,
@@ -2689,7 +2689,7 @@ mod tests {
             bt_connecting: None,
             system: SYSTEM.get_or_init(SystemStats::default),
             clock: "12:00",
-            date: "mar 20 ott",
+            date: "Tue 27 Oct",
         }
     }
 
@@ -2702,7 +2702,7 @@ mod tests {
         let config = lard_core::Config::default();
         let network = NetworkState::Disconnected;
         let networks = [WifiNetwork {
-            ssid: "Casa".into(),
+            ssid: "Home".into(),
             signal: 72,
             secured: true,
             enterprise: false,
@@ -2716,9 +2716,9 @@ mod tests {
         let mut scene = Scene::new();
         view.build(&mut scene, Size::new(1600.0, 900.0), &data, &config);
         let labels = texts(&scene);
-        assert!(labels.contains(&"Casa"), "expected SSID: {labels:?}");
+        assert!(labels.contains(&"Home"), "expected SSID: {labels:?}");
         assert!(
-            labels.contains(&"Scansiona"),
+            labels.contains(&"Scan"),
             "expected scan action: {labels:?}"
         );
 
@@ -2728,7 +2728,7 @@ mod tests {
         view.build(&mut scene, Size::new(1600.0, 900.0), &data, &config);
         let labels = texts(&scene);
         assert!(
-            labels.contains(&"Password Wi-Fi"),
+            labels.contains(&"Wi-Fi password"),
             "expected password prompt: {labels:?}"
         );
 
@@ -2740,7 +2740,7 @@ mod tests {
                 ssid,
                 password: Some(password),
                 identity: None,
-            }) if ssid == "Casa" && password == "segreta"
+            }) if ssid == "Home" && password == "segreta"
         ));
     }
 
@@ -2767,8 +2767,8 @@ mod tests {
         let mut scene = Scene::new();
         view.build(&mut scene, Size::new(1600.0, 900.0), &control, &config);
         let labels = texts(&scene);
-        assert!(labels.contains(&"Accesso Wi-Fi"), "{labels:?}");
-        assert!(labels.contains(&"Nome utente"), "{labels:?}");
+        assert!(labels.contains(&"Wi-Fi login"), "{labels:?}");
+        assert!(labels.contains(&"Username"), "{labels:?}");
         assert!(labels.contains(&"Password"), "{labels:?}");
 
         // The user name is focused first, Tab moves to the secret.
@@ -2787,7 +2787,7 @@ mod tests {
 
         // A PSK network keeps the single-field prompt and no identity.
         let psk = [WifiNetwork {
-            ssid: "Casa".into(),
+            ssid: "Home".into(),
             signal: 70,
             secured: true,
             enterprise: false,
@@ -2816,7 +2816,7 @@ mod tests {
         let network = NetworkState::Disconnected;
         let networks: Vec<WifiNetwork> = (0..20)
             .map(|index| WifiNetwork {
-                ssid: format!("Rete {index}"),
+                ssid: format!("Network {index}"),
                 signal: 60,
                 secured: true,
                 enterprise: false,
@@ -2830,15 +2830,15 @@ mod tests {
         let data = data(&network, &networks, &[]);
         let mut scene = Scene::new();
         view.build(&mut scene, Size::new(1600.0, 900.0), &data, &config);
-        assert!(texts(&scene).contains(&"Rete 0"));
+        assert!(texts(&scene).contains(&"Network 0"));
 
         assert!(view.axis(1.0));
         let mut scene = Scene::new();
         view.build(&mut scene, Size::new(1600.0, 900.0), &data, &config);
         let labels = texts(&scene);
-        assert!(!labels.contains(&"Rete 0"), "list should have scrolled");
+        assert!(!labels.contains(&"Network 0"), "list should have scrolled");
         assert!(
-            labels.contains(&"Rete 2"),
+            labels.contains(&"Network 2"),
             "expected second page: {labels:?}"
         );
 
@@ -2846,8 +2846,8 @@ mod tests {
         assert!(view.pointer_press(Point::new(1300.0, 110.0)).is_none());
         let mut scene = Scene::new();
         view.build(&mut scene, Size::new(1600.0, 900.0), &data, &config);
-        assert!(texts(&scene).contains(&"Password Wi-Fi"));
-        assert!(view.password_ssid.as_deref() == Some("Rete 2"));
+        assert!(texts(&scene).contains(&"Wi-Fi password"));
+        assert!(view.password_ssid.as_deref() == Some("Network 2"));
     }
 
     #[test]
@@ -2855,7 +2855,7 @@ mod tests {
         let config = lard_core::Config::default();
         let network = NetworkState::Disconnected;
         let networks = [WifiNetwork {
-            ssid: "Casa".into(),
+            ssid: "Home".into(),
             signal: 72,
             secured: true,
             enterprise: false,
@@ -2866,7 +2866,7 @@ mod tests {
         view.open();
         view.show_page(ControlPage::Wifi);
         let mut data = data(&network, &networks, &[]);
-        data.wifi_connecting = Some("Altra rete");
+        data.wifi_connecting = Some("Other network");
         let mut scene = Scene::new();
         view.build(&mut scene, Size::new(1600.0, 900.0), &data, &config);
         assert!(view.pointer_press(Point::new(1300.0, 110.0)).is_none());
@@ -2883,7 +2883,7 @@ mod tests {
         let mut scene = Scene::new();
         view.build(&mut scene, Size::new(1600.0, 900.0), &data, &config);
         let labels = texts(&scene);
-        for label in ["Blocca", "Esci", "Sospendi", "Riavvia", "Spegni"] {
+        for label in ["Lock", "Log out", "Suspend", "Restart", "Power off"] {
             assert!(
                 labels.contains(&label),
                 "expected power action {label}: {labels:?}"
@@ -2944,7 +2944,7 @@ mod tests {
             "expected Bluetooth device: {labels:?}"
         );
         assert!(
-            labels.contains(&"Connetti"),
+            labels.contains(&"Connect"),
             "expected connect action: {labels:?}"
         );
     }

@@ -47,13 +47,13 @@ pub struct Client {
 impl Client {
     pub fn connect() -> Result<Self, String> {
         let socket = std::env::var_os("GREETD_SOCK")
-            .ok_or_else(|| "GREETD_SOCK non impostata".to_string())?;
+            .ok_or_else(|| "GREETD_SOCK is not set".to_string())?;
         Self::connect_to(std::path::Path::new(&socket))
     }
 
     fn connect_to(socket: &std::path::Path) -> Result<Self, String> {
         let stream = UnixStream::connect(socket)
-            .map_err(|e| format!("connessione a greetd fallita: {e}"))?;
+            .map_err(|e| format!("cannot connect to greetd: {e}"))?;
         stream
             .set_read_timeout(Some(Duration::from_secs(45)))
             .map_err(|e| e.to_string())?;
@@ -88,14 +88,14 @@ impl Client {
 
     fn send(&mut self, request: &Request<'_>) -> Result<(), String> {
         let body =
-            serde_json::to_vec(request).map_err(|e| format!("richiesta greetd non valida: {e}"))?;
+            serde_json::to_vec(request).map_err(|e| format!("invalid greetd request: {e}"))?;
         let len =
-            u32::try_from(body.len()).map_err(|_| "richiesta greetd troppo grande".to_string())?;
+            u32::try_from(body.len()).map_err(|_| "greetd request too large".to_string())?;
         self.stream
             .write_all(&len.to_ne_bytes())
             .and_then(|()| self.stream.write_all(&body))
             .and_then(|()| self.stream.flush())
-            .map_err(|e| format!("invio a greetd fallito: {e}"))
+            .map_err(|e| format!("cannot write to greetd: {e}"))
     }
 
     fn receive(&mut self) -> Result<Step, String> {
@@ -103,20 +103,20 @@ impl Client {
         match self.stream.read_exact(&mut len_bytes) {
             Ok(()) => {}
             Err(e) if e.kind() == ErrorKind::UnexpectedEof => {
-                return Err("greetd ha chiuso la connessione".into());
+                return Err("greetd closed the connection".into());
             }
-            Err(e) => return Err(format!("lettura da greetd fallita: {e}")),
+            Err(e) => return Err(format!("cannot read from greetd: {e}")),
         }
         let len = u32::from_ne_bytes(len_bytes) as usize;
         if len == 0 || len > MAX_MESSAGE {
-            return Err(format!("risposta greetd non valida (lunghezza {len})"));
+            return Err(format!("invalid greetd response (length {len})"));
         }
         let mut body = vec![0u8; len];
         self.stream
             .read_exact(&mut body)
-            .map_err(|e| format!("lettura da greetd fallita: {e}"))?;
+            .map_err(|e| format!("cannot read from greetd: {e}"))?;
         let reply: Reply = serde_json::from_slice(&body)
-            .map_err(|e| format!("risposta greetd non valida: {e}"))?;
+            .map_err(|e| format!("invalid greetd response: {e}"))?;
         Ok(match reply {
             Reply::AuthMessage {
                 auth_message_type,
@@ -136,7 +136,7 @@ impl Client {
             Reply::Success => Step::Success,
             Reply::Error { description, .. } => Step::Error { description },
             Reply::Unknown => Step::Error {
-                description: "risposta greetd sconosciuta".into(),
+                description: "unknown greetd response".into(),
             },
         })
     }

@@ -1,30 +1,30 @@
-# Architettura
+# Architecture
 
-Questo documento spiega *perché* il codice è diviso così e quali invarianti
-tengono insieme il loop a 120 Hz. Il codice è la fonte di verità; qui ci sono le
-decisioni e i punti delicati.
+This document explains *why* the code is split this way and which invariants
+keep the 120 Hz loop together. The code is the source of truth; here are the
+decisions and the delicate parts.
 
-## 1. Obiettivi e non-obiettivi
+## 1. Goals and non-goals
 
-Obiettivi:
+Goals:
 
-- un solo linguaggio (Rust) e un solo processo per la shell;
-- rendering hardware-accelerated diretto, senza toolkit;
-- idle a costo ~zero, animazioni indipendenti dal refresh;
-- lock/greeter separati e non privilegiati;
-- configurazione senza ricompilare.
+- one language (Rust) and one process for the shell;
+- direct hardware-accelerated rendering, no toolkit;
+- idle at ~zero cost, animations independent of the refresh rate;
+- lock/greeter separate and unprivileged;
+- configuration without recompiling.
 
-Non-obiettivi della 0.1:
+Non-goals for 0.1:
 
-- reimplementare un compositore Wayland (il greeter usa un compositore ospite);
-- essere un clone di DankLinux/Noctalia a livello di plugin ecosystem;
-- supportare X11.
+- reimplementing a Wayland compositor (the greeter uses a host compositor);
+- being a DankLinux/Noctalia clone at the plugin-ecosystem level;
+- supporting X11.
 
-## 2. Crate e direzione delle dipendenze
+## 2. Crates and dependency direction
 
 ```
                     ┌──────────────┐
-                    │  lard-core   │  config, colori, geometria, spring, desktop
+                    │  lard-core   │  config, colors, geometry, springs, desktop
                     └──────┬───────┘
              ┌─────────────┼─────────────┐
              ▼             ▼             ▼
@@ -38,40 +38,40 @@ Non-obiettivi della 0.1:
               └─────┬──────┘
                     ▼
               ┌─────────────┐
-              │ lard-wayland│  (client Wayland + loop + input + IPC)
+              │ lard-wayland│  (Wayland client + loop + input + IPC)
               └─────┬───────┘
                     ▼
               ┌───────────┐
-              │   lard    │  binario/CLI
+              │   lard    │  binary/CLI
               └───────────┘
 ```
 
-- `lard-core` non conosce Wayland, GPU o thread.
-- `lard-render` non conosce niri né widget.
-- `lard-services` non conosce pixel.
-- `lard-wayland` è l'unico crate che tocca `wl_surface` e `wgpu::Surface`.
-- `lard-shell`/`lard-greeter` producono solo un `Scene` (draw list).
+- `lard-core` knows nothing about Wayland, the GPU or threads.
+- `lard-render` knows neither niri nor widgets.
+- `lard-services` knows nothing about pixels.
+- `lard-wayland` is the only crate that touches `wl_surface` and `wgpu::Surface`.
+- `lard-shell`/`lard-greeter` only produce a `Scene` (a draw list).
 
-## 3. Ciclo degli eventi
+## 3. Event loop
 
-`calloop` possiede il loop. Sorgenti registrate:
+`calloop` owns the loop. Registered sources:
 
-1. `WaylandSource` — eventi del compositore, configure, input, frame callback.
-2. `calloop::channel` dei servizi — stato niri, volume, batteria, rete, BT, notifiche.
-3. `calloop::channel` dell'autenticazione — risultato PAM/greetd dal worker.
-4. `calloop::channel` dell'IPC — comandi da `lard ipc`.
-5. `Timer` dell'orologio — allineato al prossimo minuto (o secondo se il formato ha `%S`).
-6. `Timer` della prossima scadenza OSD/toast — un solo timer, riarmato al bisogno.
-7. Socket Unix in un thread dedicato (`$XDG_RUNTIME_DIR/lard.sock`).
+1. `WaylandSource` — compositor events, configure, input, frame callbacks.
+2. `calloop::channel` from the services — niri state, volume, battery, network, BT, notifications.
+3. `calloop::channel` from authentication — PAM/greetd result from the worker.
+4. `calloop::channel` from IPC — commands from `lard ipc`.
+5. Clock `Timer` — aligned to the next minute (or second if the format has `%S`).
+6. `Timer` for the next OSD/toast deadline — a single timer, re-armed as needed.
+7. Unix socket in a dedicated thread (`$XDG_RUNTIME_DIR/lard.sock`).
 
-Il loop chiama `dispatch(None)` e **si blocca** quando non c'è nulla da fare.
+The loop calls `dispatch(None)` and **blocks** when there is nothing to do.
 
 ### 3.1 Frame scheduling
 
-Stato per superficie: `needs_redraw`, `configured`, `frame_pending`.
-Stato globale: `animating`, `force_update`, `callback_fired`.
+Per-surface state: `needs_redraw`, `configured`, `frame_pending`.
+Global state: `animating`, `force_update`, `callback_fired`.
 
-Dopo ogni dispatch:
+After every dispatch:
 
 ```
 tick = callback_fired || force_update
@@ -79,45 +79,44 @@ if tick:
     dt = frame_clock.tick()            # clamp 0..100 ms
     animating = shell.update(dt) | greeter.update(dt)
 drain_actions()
-sync_surfaces()                        # crea/distrugge overlay
+sync_surfaces()                        # create/destroy overlays
 if shell.dirty || animating: mark_all_dirty()
 arm_next_deadline()
 
 for each surface with needs_redraw && configured && !frame_pending:
-    wl_surface.frame(...)              # callback PRIMA del commit
+    wl_surface.frame(...)              # callback BEFORE the commit
     draw(); needs_redraw = false
 
-if animating: mark_all_dirty()         # il prossimo callback ridisegna
+if animating: mark_all_dirty()         # the next callback redraws
 ```
 
-Perché `frame()` prima del present: il callback Wayland scatta al commit
-successivo. `wgpu::Queue::present` esegue il commit; registrando il callback prima
-del present si ottiene un wake-up al vsync successivo. A quel punto
-`CompositorHandler::frame` azzera `frame_pending` e marca la superficie.
+Why `frame()` before present: the Wayland callback fires on the next commit.
+`wgpu::Queue::present` performs the commit; registering the callback before the
+present gives a wake-up on the next vsync. At that point
+`CompositorHandler::frame` clears `frame_pending` and marks the surface.
 
-Quando un'animazione finisce (`animating == false`), non viene richiesto un nuovo
-callback: la shell torna in sleep. Il callback richiesto prima dell'ultimo present
-scatta una volta, non trova superfici dirty e non ridisegna. Un evento esterno (IPC, servizio, input)
-imposta `force_update` e ridisegna un singolo frame.
+When an animation ends (`animating == false`) no new callback is requested: the
+shell goes back to sleep. The callback requested before the last present fires
+once, finds no dirty surfaces and does not redraw. An external event (IPC,
+service, input) sets `force_update` and redraws a single frame.
 
-`PresentMode::Fifo` è una seconda cintura: anche se un evento esterno tenta di
-disegnare più spesso, la presentazione è limitata al refresh e non si accumula
-latenza illimitata.
+`PresentMode::Fifo` is a second safety belt: even if an external event tries to
+draw more often, presentation is capped at the refresh rate and latency does not
+pile up.
 
-### 3.2 Perché non c'è un timer a 16 ms
+### 3.2 Why there is no 16 ms timer
 
-Un timer periodico sveglia la CPU anche quando nulla cambia. Qui il timer più
-frequente in idle è quello dell'orologio: **una volta al minuto**. Le scadenze
-OSD/toast sono timer one-shot esatti. Le animazioni sono guidate dai frame
-callback del compositore.
+A periodic timer wakes the CPU even when nothing changes. Here the most frequent
+idle timer is the clock: **once a minute**. OSD/toast deadlines are exact
+one-shot timers. Animations are driven by the compositor's frame callbacks.
 
-## 4. Superfici e ordine di distruzione
+## 4. Surfaces and drop order
 
-`SurfaceEntry` dichiara i campi in quest'ordine:
+`SurfaceEntry` declares its fields in this order:
 
 ```rust
 struct SurfaceEntry {
-    render: Option<RenderSurface>,   // distrutto per primo
+    render: Option<RenderSurface>,   // dropped first
     effect: Option<ExtBackgroundEffectSurfaceV1>,
     layer: Option<LayerSurface>,
     lock: Option<SessionLockSurface>,
@@ -126,387 +125,376 @@ struct SurfaceEntry {
 }
 ```
 
-Rust droppa i campi nell'ordine di dichiarazione. La swapchain wgpu deve morire
-prima del `wl_surface` a cui è agganciata, altrimenti il backend può usare un
-handle Wayland già liberato.
+Rust drops fields in declaration order. The wgpu swapchain must die before the
+`wl_surface` it is attached to, otherwise the backend may use an already freed
+Wayland handle.
 
-Le superfici sono indicizzate per `ObjectId` del `wl_surface`; gli eventi SCTK
-arrivano con il proxy e vengono risolti con `surface.id()`.
+Surfaces are indexed by the `wl_surface` `ObjectId`; SCTK events arrive with the
+proxy and are resolved with `surface.id()`.
 
-### 4.1 Overlay dinamici
+### 4.1 Dynamic overlays
 
-Launcher, control center, OSD e toast non esistono quando non servono. Vengono
-creati alla prima necessità e distrutti quando la loro animazione di uscita è
-finita (`progress < 0.01`). Questo evita swapchain fullscreen permanenti.
+Launcher, control center, OSD and toasts do not exist when they are not needed.
+They are created on first use and destroyed when their exit animation is over
+(`progress < 0.01`). This avoids permanent full-screen swapchains.
 
-La barra invece esiste per output. Il launcher/CC sono fullscreen (scrim + card):
-un solo layer surface cattura click fuori dalla card e gestisce il dimming.
+The bar exists per output. Launcher/CC are full-screen (scrim + card): a single
+layer surface captures clicks outside the card and handles the dimming.
 
-### 4.1.1 Avvio robusto (socket scoperti)
+### 4.1.1 Robust start-up (undiscovered sockets)
 
-La shell parte spesso da systemd, il cui ambiente non contiene né
-`WAYLAND_DISPLAY` né un `NIRI_SOCKET` aggiornato: niri, quando il nome semplice
-è occupato, appende il proprio pid al socket (`niri.wayland-1.1234.sock`) e
-ogni riavvio cambia il percorso. All'avvio `connect_wayland()` prova prima
-l'ambiente e poi il socket `wayland-<n>` più recente in `XDG_RUNTIME_DIR`; una
-volta connesso esporta `WAYLAND_DISPLAY` così wallpaper e processi figli lo
-ereditano. `lard_services::niri::socket_path()` fa lo stesso per niri e
-`export_socket_env()` lo rende disponibile ai comandi `niri msg` lanciati dalla
-UI. Le connessioni successive ricontrollano il percorso: una shell sopravvive
-al riavvio del compositore invece di restare senza barra (era questo il motivo
-per cui le icone del launcher "sparivano" dopo un reboot).
+The shell often starts from systemd, whose environment has neither
+`WAYLAND_DISPLAY` nor an up-to-date `NIRI_SOCKET`: when the plain name is taken,
+niri appends its pid to the socket (`niri.wayland-1.1234.sock`) and every
+restart changes the path. At start-up `connect_wayland()` tries the environment
+first and then the newest `wayland-<n>` socket in `XDG_RUNTIME_DIR`; once
+connected it exports `WAYLAND_DISPLAY` so wallpaper and child processes inherit
+it. `lard_services::niri::socket_path()` does the same for niri and
+`export_socket_env()` makes it available to `niri msg` commands launched from the
+UI. Later connections re-check the path: a shell survives a compositor restart
+instead of being left without a bar (which is why the launcher icons "vanished"
+after a reboot).
 
+### 4.2 Scale and buffers
 
-### 4.2 Scala e buffer
+`wl_surface.set_buffer_scale(scale)` is set before the initial commit. The
+layer/lock configure is in **surface-local** (logical) coordinates; the swapchain
+is configured in physical pixels (`logical * scale`). The scene uses logical
+pixels; the renderer multiplies positions and radii by `scale`. Text is shaped
+directly at the physical size to avoid upscaling blur.
 
-`wl_surface.set_buffer_scale(scale)` viene impostato prima del commit iniziale.
-Il configure di layer/lock è in coordinate **surface-local** (logiche); la
-swapchain viene configurata in pixel fisici (`logical * scale`). Lo scene usa
-pixel logici; il renderer moltiplica posizioni e raggi per `scale`. Il testo viene
-shapato direttamente alla dimensione fisica per evitare blur da upscaling.
-
-La scala frazionaria (`wp_fractional_scale_v1`) non è ancora gestita: niri scala
-il buffer intero.
+Fractional scaling (`wp_fractional_scale_v1`) is not handled yet: niri scales the
+whole buffer.
 
 ## 5. Renderer
 
-### 5.1 Pipeline
+### 5.1 Pipelines
 
-Due pipeline per formato di superficie:
+Two pipelines per surface format:
 
-1. **SDF rect**: un buffer di istanze da 80 byte. Ogni istanza ha rettangolo,
-   colore lineare straight, 4 raggi, `(border_width, softness, opacity, mode)` e
-   colore bordo. Il vertex shader genera i 6 vertici del quad da `vertex_index`:
-   niente vertex buffer per la geometria. Il fragment calcola il signed distance
-   field di un rounded box con raggi per angolo, fa antialiasing con `fwidth`, e
-   gestisce tre modi:
-   - forma (fill + bordo, composizione premultiplied);
-   - ombra (alpha pieno dentro, falloff `smoothstep` fuori);
-   - glow radiale (ellisse con falloff normalizzato, per wallpaper e blob).
-2. **Testo**: un buffer di istanze da 48 byte (rect, UV, colore), un atlas R8
-   2048² e sampler lineare. Il fragment moltiplica la coverage del glifo per il
-   colore e restituisce premultiplied alpha.
+1. **SDF rect**: an instance buffer of 80 bytes. Each instance has a rectangle,
+   straight linear color, 4 radii, `(border_width, softness, opacity, mode)` and a
+   border color. The vertex shader generates the 6 quad vertices from
+   `vertex_index`: no vertex buffer for the geometry. The fragment computes the
+   signed distance field of a rounded box with per-corner radii, antialiases with
+   `fwidth`, and handles three modes:
+   - shape (fill + border, premultiplied composition);
+   - shadow (full alpha inside, `smoothstep` falloff outside);
+   - radial glow (ellipse with normalized falloff, for wallpaper and blobs).
+2. **Text**: an instance buffer of 48 bytes (rect, UV, color), a 2048² R8 atlas
+   and a linear sampler. The fragment multiplies the glyph coverage by the color
+   and returns premultiplied alpha.
 
-Solo due draw call per superficie, indipendentemente dal numero di widget.
+Only two draw calls per surface, regardless of the number of widgets.
 
-### 5.2 Colore
+### 5.2 Color
 
-I colori di config sono sRGB straight-alpha. Il renderer li converte in **lineare
-straight** e lo shader premultiplice dopo aver composto fill e bordo. La superficie
-è `*Srgb` con `CompositeAlphaMode::PreMultiplied`: il compositing del compositore
-è corretto e le ombre non hanno aloni.
+Config colors are sRGB straight-alpha. The renderer converts them to **straight
+linear** and the shader premultiplies after compositing fill and border. The
+surface is `*Srgb` with `CompositeAlphaMode::PreMultiplied`: the compositor's
+compositing is correct and shadows have no halos.
 
-### 5.3 Testo
+### 5.3 Text
 
-- `cosmic-text` fa shaping (harfbuzz/harfrust) e rasterizzazione (swash).
-- Layout cache: hash FNV-1a di `(testo, famiglia, dimensione fisica, peso,
-  max_width)` + confronto completo. Hit = zero shaping.
-- La cache conserva al massimo 512 layout; poi si svuota (l'atlas resta valido).
-- Atlas a scaffali con 1 px di padding, upload immediato `queue.write_texture`.
-- Glifi `Mask` supportati; `Color` (emoji) e `SubpixelMask` vengono saltati.
-- Il testo è posizionato in pixel fisici; l'allineamento viene applicato al
-  momento del batch usando la larghezza misurata.
-- La shell non ha un contesto GPU, ma per dimensionare i pannelli intorno alle
-  etichette usa le **advance reali** del font: `lard_render::text::sans_advances()`
-  misura una volta per volta l'ASCII stampabile con Inter e restituisce le
-  larghezze per un font da 100 px. `widgets::approx_width` usa quella tabella
-  (con una stima grossolana solo per gli script non latini): la stima a
-  carattere era troppo ottimista e tagliava testi che entravano, costringendo a
-  un fattore di sicurezza del 45%.
+- `cosmic-text` does shaping (harfbuzz/harfrust) and rasterization (swash).
+- Layout cache: FNV-1a hash of `(text, family, physical size, weight, max_width)`
+  + full comparison. Hit = zero shaping.
+- The cache keeps at most 512 layouts, then it is cleared (the atlas stays valid).
+- Shelf atlas with 1 px padding, immediate upload with `queue.write_texture`.
+- `Mask` glyphs are supported; `Color` (emoji) and `SubpixelMask` are skipped.
+- Text is positioned in physical pixels; alignment is applied at batch time using
+  the measured width.
+- The shell has no GPU context, but to size panels around labels it uses the
+  font's **real advances**: `lard_render::text::sans_advances()` measures printable
+  ASCII once with Inter and returns widths for a 100 px font.
+  `widgets::approx_width` uses that table (with a rough estimate only for non-Latin
+  scripts): the per-character estimate was too optimistic and clipped text that
+  would have fit, forcing a 45% safety factor.
 
-### 5.4 Icone delle applicazioni
+### 5.4 Application icons
 
-Il `Icon=` dei file `.desktop` viene risolto sui theme freedesktop
-(`hicolor`, `Adwaita`, …), su `~/.icons`, su `/usr/share/pixmaps` e sugli
-export Flatpak (`/var/lib/flatpak/exports/share/icons`). I raster passano da
-`image`, gli SVG vengono rasterizzati con `resvg` e un-premultiplicati. Ogni
-icona occupa una cella 128x128 dell'atlas immagini (gli id 0..119 restano
-al carosello dei wallpaper), così il launcher e il dock mostrano l'icona
-vera dell'applicazione. Se il file non esiste o non è decodificabile si
-rende il glifo Material simbolico.
+The `Icon=` of `.desktop` files is resolved through the freedesktop themes
+(`hicolor`, `Adwaita`, …), `~/.icons`, `/usr/share/pixmaps` and the Flatpak
+exports (`/var/lib/flatpak/exports/share/icons`). Raster images go through
+`image`, SVGs are rasterized with `resvg` and un-premultiplied. Every icon takes a
+128x128 cell of the image atlas (ids 0..119 stay with the wallpaper carousel), so
+the launcher and the dock show the real application icon. If the file is missing
+or cannot be decoded, the symbolic Material glyph is drawn instead.
 
-### 5.5 Isola centrale e notifiche
+### 5.5 Centre island and notifications
 
-L'isola centrale della barra è un solo slot: il clock, la data, la campanella e
-l'HUD volume/luminosità si sostituiscono a vicenda. Quando arriva una
-notifica, l'isola viene **soppressa** (l'orologio scompare) e la notifica viene
-disegnata su una **superficie overlay separata** (`lard-notification`,
-layer Overlay): così l'isola può allargarsi anche sopra le finestre senza
-ridimensionare la superficie della barra né quella delle finestre. La
-notifica ha una finestra di 6 s e un decay lineare di 1,4 s alla fine, poi
-l'orologio torna. L'isola della notifica è una superficie separata: quando il
-messaggio ha un corpo cresce di 12 px oltre l'altezza della barra (e la
-superficie viene ridimensionata), così le due righe non toccano i bordi
-superiore e inferiore.
+The centre island of the bar is a single slot: clock, date, bell and the
+volume/brightness HUD replace each other. When a notification arrives the island
+is **suppressed** (the clock disappears) and the notification is drawn on a
+**separate overlay surface** (`lard-notification`, Overlay layer): this way the
+island can grow over windows without resizing the bar surface or the window
+surfaces. The notification has a 6 s window and a 1.4 s linear decay at the end,
+then the clock comes back. The notification island is a separate surface: when the
+message has a body it grows 12 px past the bar height (and the surface is
+resized), so the two lines never touch the top and bottom edges.
 
-### 5.6 Morph dei pannelli
+### 5.6 Panel morph
 
-Ogni pannello che si apre da un'isola conosce il rettangolo dell'isola di
-partenza (`BarIsland`): il `Popover` e il `Launcher` interpolano la forma fra
-il rettangolo dell'isola e quello finale, mentre il contenuto (testi, tile,
-azioni) viene disegnato nella posizione finale e fatto apparire con un alpha
-ritardato. La barra, dal canto suo, sfuma l'isola che stamorphando
-(`Scene::fade_since` scala l'alpha dei comandi disegnati per quell'isola),
-così il pannello sembra nascere dall'isola e non davanti ad essa.
+Every panel opened from an island knows the starting island rectangle
+(`BarIsland`): `Popover` and `Launcher` interpolate the shape between the island
+rectangle and the final one, while the content (text, tiles, actions) is drawn at
+its final position and faded in with a delay. The bar, on its side, fades the
+island that is morphing (`Scene::fade_since` scales the alpha of the commands
+drawn for that island), so the panel seems to be born from the island instead of
+in front of it.
 
-La forma non "scivola" durante il morph: l'interpolazione **ancora un angolo
-dell'isola** (`widgets::morph_rect` con `MorphAnchor::Left|Center|Right` a
-seconda dell'isola da cui nasce) e fa solo crescere il rettangolo. Per il
-centro di controllo l'angolo ancorato è quello in alto a destra, quindi il
-bordo destro del pannello resta **incollato** al bordo destro dell'isola per
-tutta l'animazione. Inoltre il pannello **prende il posto dell'isola**: la sua
-superficie parte dalla fila della barra (`y = 0`) e cresce verso il basso, mentre
-i controlli restano disposti sotto la barra (`Popover::content_rect`). La forma
-raggiunge la misura finale presto (`smoothstep(0.0, 0.62, p)`) e il contenuto
-compare dopo (`smoothstep(0.82, 1.0, p)`): quando il testo appare il pannello è
-già al suo posto, quindi non esce mai fuori dal rettangolo.
+The shape does not "slide" during the morph: the interpolation **anchors one
+corner of the island** (`widgets::morph_rect` with `MorphAnchor::Left|Center|Right`
+depending on the island it comes from) and only grows the rectangle. For the
+control center the anchored corner is the top-right one, so the right edge of the
+panel stays **glued** to the right edge of the island for the whole animation.
+Moreover the panel **takes the island's place**: its surface starts on the bar row
+(`y = 0`) and grows downwards, while the controls stay laid out below the bar
+(`Popover::content_rect`). The shape reaches its final size early
+(`smoothstep(0.0, 0.62, p)`) and the content appears later
+(`smoothstep(0.62, 0.95, p)`): when the text appears the panel is already in place,
+so it never spills outside the rectangle.
 
-La chiusura è **l'inverso dell'apertura**: `close()` non azzera più l'origine
-del morph, il contenuto sfuma per primo e poi la forma si ritira nell'isola
-lungo la stessa curva, mentre la barra riaccende l'isola con lo stesso fade.
-L'origine viene dimenticata solo quando la molla è tornata a zero. Lo stesso
-vale per il launcher (che conserva la sua origine) e per i pannelli che
-animano direttamente il proprio `progress` (impostazioni, wallpaper,
-control center): nessuno fa snap a zero, così ogni uscita ripercorre al
-contrario l'ingresso.
+Closing is **the reverse of opening**: `close()` no longer clears the morph
+origin, the content fades first and then the shape withdraws into the island along
+the same curve, while the bar lights the island up again with the same fade. The
+origin is forgotten only when the spring is back to zero. The same holds for the
+launcher (which keeps its origin) and for the panels that animate their own
+`progress` directly (settings, wallpaper, control center): none of them snaps to
+zero, so every exit retraces the entrance backwards.
 
-### 5.6.1 Launcher: ricerca, calcolatrice, file finder
+### 5.6.1 Launcher: search, calculator, file finder
 
-Il launcher ha tre sorgenti di righe, tutte nella stessa lista navigabile:
-applicazioni (fuzzy `nucleo-matcher`), **calcolatrice** e **file**. La
-calcolatrice riconosce un'espressione aritmetica pura (`+ - * / % ^`,
-parentesi, decimali) e mostra il risultato come prima riga: `↵` lo copia negli
-appunti (`wl-copy`). Le query che sembrano un percorso (`~`, `/`, `./`, `../`)
-elencano subito la directory (una sola `read_dir`, con i file nascosti solo se
-la query inizia con un punto); le altre parole, quando non trovano
-applicazioni, avviano in un thread separato una ricerca per nome nella home
-(profondità 4, budget di 6000 voci, cartelle pesanti escluse) e le righe
-arrivano appena pronte. La card ha un'altezza massima: le righe che non ci
-stanno si raggiungono con la rotella (o con le frecce, che tengono la
-selezione visibile) e una scrollbar sottile mostra la posizione.
+The launcher has three row sources, all in the same navigable list:
+applications (fuzzy `nucleo-matcher`), **calculator** and **files**. The
+calculator recognises a pure arithmetic expression (`+ - * / % ^`, parentheses,
+decimals) and shows the result as the first row: `↵` copies it to the clipboard
+(`wl-copy`). Queries that look like a path (`~`, `/`, `./`, `../`) list the
+directory immediately (a single `read_dir`, with hidden files only when the query
+starts with a dot); the other words, when they match no application, start a
+background name search in the home directory (depth 4, budget of 6000 entries,
+heavy folders excluded) and the rows arrive as soon as they are ready. The card has
+a maximum height: rows that do not fit are reached with the wheel (or with the
+arrows, which keep the selection visible) and a thin scrollbar shows the position.
 
+### 5.7 Radii and chain
 
-### 5.7 Raggi e catena
+Radii are not hard-coded in the views: the theme exposes three tokens
+(`radius.control()` for small controls, `radius.card()` for cards and tiles,
+`radius.panel()` for panels) and a `radius.linked` flag. With the chain on, every
+token returns the master value `radius.md`: panels, cards, buttons, pills and
+switches all follow the same radius. The renderer always clamps the radius to
+`min(half_size)`, so large values on small elements stay round.
 
-I raggi non sono scritti a mano nelle viste: il tema espone tre token
-(`radius.control()` per i controlli piccoli, `radius.card()` per card e tile,
-`radius.panel()` per i pannelli) e un flag `radius.linked`. Con la catena
-attiva ogni token restituisce il valore master `radius.md`: i pannelli, le
-card, i pulsanti, le pastiglie e gli switch seguono tutti lo stesso raggio.
-Il renderer taglia sempre il raggio a `min(half_size)`, quindi i valori grandi
-sui piccoli elementi restano rotondi.
+### 5.8 Bar icons
 
-### 5.8 Icone della barra
-
-Le icone delle isole non vengono dal font Material: sono **disegnate con le
-primitive SDF** (rettangoli arrotondati) in `lard-shell/src/bar_icons.rs`, così
-sono piene, coerenti con lo stile arrotondato della shell e nitide a qualunque
-scala: griglia 2×2 per il launcher, tre slider per il centro di controllo,
-campanella per le notifiche.
+The island icons do not come from the Material font: they are **drawn with the SDF
+primitives** (rounded rectangles) in `lard-shell/src/bar_icons.rs`, so they are
+solid, consistent with the rounded style of the shell and sharp at any scale: a
+2×2 grid for the launcher, three sliders for the control center, a bell for
+notifications.
 
 ### 5.9 Backdrop blur
 
-Il blur vero del contenuto dietro una superficie non è ottenibile con wgpu da
-solo. Usiamo il protocollo **`ext-background-effect-v1`**: il client dichiara una
-regione e il compositore applica il proprio blur. SCTK 0.21 espone già lo stato e
-l'oggetto per superficie. Se il global non c'è, la regione non viene impostata e
-la UI usa i suoi colori alpha/vetro.
+The real blur of the content behind a surface cannot be obtained with wgpu alone.
+We use the **`ext-background-effect-v1`** protocol: the client declares a region
+and the compositor applies its own blur. SCTK 0.21 already exposes the state and
+the per-surface object. If the global is missing, the region is not set and the UI
+uses its alpha/glass colors.
 
-La regione non è mai un rettangolo pieno: ogni pannello dichiara le proprie
-aree arrotondate (`wl_region` con bande orizzontali per i raggi). La barra
-espone i rettangoli delle **isole** (sinistra, centro, destra) e il compositor
-sfoca solo quei pannelli, anche se la superficie della barra copre tutta la
-larghezza dell'output. Lo stesso vale per il dock e per gli overlay
-(launcher, control center, impostazioni, popover, wallpaper). Il raggio usato
-per la regione è quello configurato per le isole (`bar.corner_radius`), quindi
-il ritaglio del blur segue sempre la forma disegnata. Opacità e "livello vetro"
-(`theme.overlay_opacity`, `theme.frost`) decidono quanto il blur si vede
-attraverso i pannelli: il "livello vetro" rende il fondo del pannello più
-trasparente (`widgets::panel_alpha`), altrimenti il colore del pannello
-nasconderebbe lo sfoco.
+The region is never a full rectangle: every panel declares its own rounded areas
+(`wl_region` with horizontal bands for the radii). The bar exposes the **island**
+rectangles (left, centre, right) and the compositor blurs only those panels, even
+though the bar surface covers the whole output width. The same holds for the dock
+and for the overlays (launcher, control center, settings, popover, wallpaper). The
+radius used for the region is the configured one for the islands
+(`bar.corner_radius`), so the blur clipping always follows the drawn shape.
+Opacity and "glass level" (`theme.overlay_opacity`, `theme.frost`) decide how much
+of the blur is visible through the panels: the "glass level" makes the panel
+background more transparent (`widgets::panel_alpha`), otherwise the panel color
+would hide the blur.
 
-La regione segue la **forma corrente** del pannello (`Shell::overlay_rect` usa
-`shape_rect()`), non il rettangolo finale: durante il morph il blur cresce
-insieme alla forma, senza anticipare un rettangolo grigio nella posizione
-definitiva.
+The region follows the **current shape** of the panel (`Shell::overlay_rect` uses
+`shape_rect()`), not the final rectangle: during the morph the blur grows with the
+shape, without anticipating a grey rectangle at the final position.
 
-L'alternativa (screencopy + blur in GPU) comporterebbe copiare il frame intero a
-ogni frame: esclusa per il vincolo di consumo.
+The alternative (screencopy + GPU blur) would mean copying the whole frame every
+frame: excluded because of the power budget.
 
-## 6. Animazioni
+## 6. Animations
 
-`Spring` risolve in forma chiusa:
+`Spring` is solved in closed form:
 
 ```
 x'' + 2ζω x' + ω² x = 0
 ω = sqrt(k/m),  ζ = c / (2 sqrt(k m))
 ```
 
-Tre casi (under/critical/over-damped) con soluzioni esponenziali/sinusoidali. Il
-valore e la velocità vengono aggiornati in un colpo solo con il `dt` reale, quindi
-60 e 120 Hz producono la stessa traiettoria (test in `lard-core`). Il retarget
-conserva la velocità: interrompere un'animazione non la fa ripartire da zero.
+Three cases (under/critical/over-damped) with exponential/sinusoidal solutions.
+The value and the velocity are updated in one go with the real `dt`, so 60 and
+120 Hz produce the same trajectory (tests in `lard-core`). Retargeting keeps the
+velocity: interrupting an animation does not restart it from zero.
 
-`FrameClock` clampa `dt` a 100 ms (sospensione/stop del debugger) e mantiene una
-EMA di FPS per diagnostica.
+`FrameClock` clamps `dt` to 100 ms (suspend/debugger stop) and keeps an EMA of the
+FPS for diagnostics.
 
-## 7. Servizi
+## 7. Services
 
-Tutti i servizi scrivono su un `calloop::channel::Sender<ServiceEvent>`; il thread
-UI non fa mai I/O bloccante.
+All services write to a `calloop::channel::Sender<ServiceEvent>`; the UI thread
+never does blocking I/O.
 
-| Servizio | Meccanismo | Frequenza |
+| Service | Mechanism | Rate |
 |---|---|---|
 | niri | `niri-ipc` `EventStream` + `EventStreamState` | event-driven |
-| audio | `pactl subscribe`, coalescing 35 ms, `wpctl`/`pactl` per lo stato | event-driven |
-| batteria | sysfs (`/sys/class/power_supply`) | 30 s |
-| luminosità | sysfs backlight (+ `brightnessctl` fallback) | 5 s |
-| rete | zbus NetworkManager property streams | event-driven (fallback `nmcli` 15 s) |
-| bluetooth | zbus BlueZ Adapter1 property streams | event-driven (fallback `bluetoothctl` 30 s) |
-| notifiche | zbus, `org.freedesktop.Notifications` su session bus | event-driven |
+| audio | `pactl subscribe`, 35 ms coalescing, `wpctl`/`pactl` for the state | event-driven |
+| battery | sysfs (`/sys/class/power_supply`) | 30 s |
+| brightness | sysfs backlight (+ `brightnessctl` fallback) | 5 s |
+| network | zbus NetworkManager property streams | event-driven (`nmcli` fallback 15 s) |
+| bluetooth | zbus BlueZ Adapter1 property streams | event-driven (`bluetoothctl` fallback 30 s) |
+| notifications | zbus, `org.freedesktop.Notifications` on the session bus | event-driven |
 
-Le richieste niri (focus workspace, spawn) usano una seconda connessione in un
-thread dedicato: il socket event-stream è read-only dopo `EventStream`.
+niri requests (focus workspace, spawn) use a second connection in a dedicated
+thread: the event-stream socket is read-only after `EventStream`.
 
-I comandi esterni usano **argv fissi**, mai una shell. `LC_ALL=C` evita parsing
-localizzato.
+External commands use **fixed argv**, never a shell. `LC_ALL=C` avoids localized
+parsing.
 
-Le notifiche: il daemon assegna gli id e inoltra al UI thread. Il UI possiede
-timeout e invia `DaemonCommand::Close { id, reason }`; il daemon emette
-`NotificationClosed` una sola volta con il reason corretto (1 expired, 2 dismissed,
-3 call). Le capability includono `body` e `actions`; le azioni vengono mostrate
-come pulsanti e `ActionInvoked` viene emesso dal daemon.
+Notifications: the daemon assigns the ids and forwards to the UI thread. The UI
+owns timeouts and sends `DaemonCommand::Close { id, reason }`; the daemon emits
+`NotificationClosed` once with the right reason (1 expired, 2 dismissed, 3 call).
+Capabilities include `body` and `actions`; actions are shown as buttons and
+`ActionInvoked` is emitted by the daemon.
 
 ## 8. PAM, lockscreen, greetd
 
-Due flussi distinti, di proposito:
+Two distinct flows, on purpose:
 
-### Lock (utente già autenticato)
+### Lock (user already authenticated)
 
 ```
 lard lock
   → ext-session-lock-v1
-  → PAM pam_authenticate (in-process, utente corrente)
-  → fade card
+  → PAM pam_authenticate (in-process, current user)
+  → card fade
   → ext_session_lock_v1.unlock_and_destroy
 ```
 
-PAM è chiamato in un thread worker. Il modulo FFI dichiara solo:
+PAM is called on a worker thread. The FFI module declares only:
 
 ```c
 pam_start, pam_authenticate, pam_end, pam_strerror
 ```
 
-La conversazione:
+The conversation:
 
-- alloca l'array con `calloc` e le risposte con `malloc` (PAM le libera con `free`);
-- risponde con password/username ai prompt echo-off/echo-on;
-- non fa panic attraverso il confine FFI;
-- su errore libera tutto e restituisce `PAM_CONV_ERR`;
-- la copia C della password viene azzerata con scritture volatile.
+- allocates the array with `calloc` and the responses with `malloc` (PAM frees them with `free`);
+- answers password/username to the echo-off/echo-on prompts;
+- never panics across the FFI boundary;
+- on error frees everything and returns `PAM_CONV_ERR`;
+- the C copy of the password is zeroed with volatile writes.
 
-**Niente `pam_acct_mgmt`**: un lock screen non è un login. Su `/etc/shadow`
-standard l'utente non può leggere la scadenza password; `pam_unix(account)`
-fallirebbe e impedirebbe lo sblocco. La policy di account resta a greetd/login.
+**No `pam_acct_mgmt`**: a lock screen is not a login. On a standard `/etc/shadow`
+the user cannot read the password expiry; `pam_unix(account)` would fail and block
+the unlock. Account policy stays with greetd/login.
 
-La superficie di lock resta **opaca** durante il fade: si dissolve solo la card.
-Mostrare il desktop prima di `unlock()` sarebbe una fuga di contenuto.
+The lock surface stays **opaque** during the fade: only the card dissolves.
+Showing the desktop before `unlock()` would leak content.
 
 ### Login (greetd)
 
 ```
-greetd (root) ── PAM + sessione ──► niri-session
+greetd (root) ── PAM + session ──► niri-session
      ▲
-     │ JSON su $GREETD_SOCK
-lard greeter (utente greeter, dentro sway/niri)
+     │ JSON over $GREETD_SOCK
+lard greeter (user greeter, inside sway/niri)
 ```
 
-Il greeter non chiama `setuid` e non avvia processi di sessione: non è un display
-manager privilegiato. Questo è il modello corretto e auditabile; un "greeter
-standalone" richiederebbe un compositore incorporato e privilegi, fuori scope per
-la 0.1.
+The greeter does not call `setuid` and does not start session processes: it is not
+a privileged display manager. This is the correct, auditable model; a
+"standalone greeter" would need an embedded, privileged compositor, which is out
+of scope for 0.1.
 
-**Formato IPC.** `greetd` non usa JSON delimitato da newline: ogni messaggio è
-`len: u32` (native-endian) seguito dal payload JSON (`Request`/`Response` di
-`greetd_ipc`). Un framing sbagliato fa chiudere la connessione con
-`client loop failed: i/o error: early eof` e il login non parte mai. Il client
-(`lard-greeter/src/greetd.rs`) applica il framing corretto, rifiuta frame oltre
-1 MiB e ha un test con un server finto che verifica l'intera sequenza
-`create_session` → password → `start_session`.
+**IPC format.** `greetd` does not use newline-delimited JSON: every message is
+`len: u32` (native-endian) followed by the JSON payload (`Request`/`Response` of
+`greetd_ipc`). Wrong framing makes the connection close with
+`client loop failed: i/o error: early eof` and the login never starts. The client
+(`lard-greeter/src/greetd.rs`) applies the correct framing, rejects frames over
+1 MiB and has a test with a fake server that checks the whole
+`create_session` → password → `start_session` sequence.
 
-**Ciclo di vita.** Dopo `start_session` greetd dà al greeter 5 s per uscire
-(altrimenti `term`, poi `kill`) e solo allora avvia la sessione: il greeter deve
-quindi terminare in fretta. `is_finished` richiede il fade a zero, con un
-watchdog a 3 s che chiude comunque il processo se la superficie smette di
-presentare frame (output spento), così greetd non resta mai in attesa.
+**Lifecycle.** After `start_session` greetd gives the greeter 5 s to exit
+(otherwise `term`, then `kill`) and only then starts the session: the greeter must
+therefore terminate quickly. `is_finished` requires the fade to reach zero, with a
+3 s watchdog that kills the process anyway if the surface stops presenting frames
+(display off), so greetd never waits forever.
 
 ## 9. Input
 
-- Tastiera: SCTK `KeyboardHandler`. `event.utf8` per il testo, keysym per i tasti
-  speciali, `Modifiers` per ignorare Ctrl/Alt/Super nei campi di testo.
-- Pointer: `PointerHandler` con route per `wl_surface`; coordinate surface-local
-  logiche. Ogni lock/greeter surface conserva la propria hit-map, quindi il
-  multi-monitor non dipende dall'ultima superficie costruita.
-- Il focus tastiera viene tracciato da `KeyboardHandler::enter/leave`. Le
-  superfici launcher/CC/greeter usano `KeyboardInteractivity::Exclusive`.
-- Il greeter non ha dirty-tracking proprio: il loop è event-driven, quindi ogni
-  tick forzato (tasto, click, risultato auth, orologio) marca le sue superfici
-  dirty. Il caret arma una deadline a 0.53 s (`GreeterView::next_deadline`):
-  senza di essa il repaint arriverebbe solo al tick dell'orologio (60 s) e la
-  password digitata sembrerebbe non comparire.
-- La barra ha `KeyboardInteractivity::None`.
-- L'OSD ha una input region vuota: non intercetta click.
-- Click fuori dalla card del launcher/CC chiude l'overlay (scrim fullscreen).
+- Keyboard: SCTK `KeyboardHandler`. `event.utf8` for text, keysyms for special
+  keys, `Modifiers` to ignore Ctrl/Alt/Super in text fields.
+- Pointer: `PointerHandler` routed per `wl_surface`; logical surface-local
+  coordinates. Every lock/greeter surface keeps its own hit-map, so multi-monitor
+  does not depend on the last surface built.
+- Keyboard focus is tracked by `KeyboardHandler::enter/leave`. Launcher/CC/greeter
+  surfaces use `KeyboardInteractivity::Exclusive`.
+- The greeter has no dirty-tracking of its own: the loop is event-driven, so every
+  forced tick (key, click, auth result, clock) marks its surfaces dirty. The caret
+  arms a 0.53 s deadline (`GreeterView::next_deadline`): without it the repaint
+  would only arrive at the clock tick (60 s) and the typed password would seem not
+  to appear.
+- The bar uses `KeyboardInteractivity::None`.
+- The OSD has an empty input region: it does not intercept clicks.
+- A click outside the launcher/CC card closes the overlay (full-screen scrim).
 
 ## 10. Config
 
-`config.toml` è deserializzato con `serde` + `toml`, `deny_unknown_fields` per
-intercettare i refusi. `Config::validate()` controlla dimensioni, alpha, spring e
-nome del servizio PAM. I default sono nel codice e il file di esempio è copiato in
-`config/config.toml`; un test parsa e valida il file spedito.
+`config.toml` is deserialized with `serde` + `toml`, `deny_unknown_fields` to catch
+typos. `Config::validate()` checks sizes, alpha, springs and the PAM service name.
+Defaults live in the code and the example file is copied to `config/config.toml`;
+a test parses and validates the shipped file.
 
-Il caricamento avviene all'avvio. `LARD_CONFIG` permette di puntare a un
-file esplicito (utile per l'utente `greeter`). Un watcher inotify sorveglia le
-directory di config e richiede `lard ipc reload` dopo un salvataggio
-(debounce 350 ms); il reload ricrea renderer/font e superfici della shell, mentre
-lo stato (notifiche, launcher, snapshot niri) resta in memoria. La configurazione
-delle molle dei singoli widget resta quella dell'avvio.
+Loading happens at start-up. `LARD_CONFIG` points at an explicit file (useful for
+the `greeter` user). An inotify watcher watches the config directories and asks for
+`lard ipc reload` after a save (350 ms debounce); the reload recreates the
+renderer/fonts and the shell surfaces, while the state (notifications, launcher,
+niri snapshot) stays in memory. Per-widget spring settings stay those of the
+start-up.
 
-## 11. Unsafe e memoria
+## 11. Unsafe and memory
 
-L'intero progetto è safe Rust tranne:
+The whole project is safe Rust except:
 
-1. **Creazione della superficie wgpu da handle Wayland** (`lard-render/src/gpu.rs`,
-   `surface.rs`): i puntatori sono ottenuti da `wl_display`/`wl_surface` vivi; il
-   contratto è documentato e l'ordine di drop lo rispetta.
-2. **FFI PAM** (`lard-greeter/src/pam.rs`): layout C verificato a mano, nessun
-   bindgen, allocazione/deallocazione simmetrica, niente unwind.
-3. **Zeroizzazione volatile** della password e dei buffer.
+1. **Creating the wgpu surface from Wayland handles** (`lard-render/src/gpu.rs`,
+   `surface.rs`): the pointers come from live `wl_display`/`wl_surface`; the
+   contract is documented and the drop order respects it.
+2. **PAM FFI** (`lard-greeter/src/pam.rs`): hand-checked C layout, no bindgen,
+   symmetric allocation/deallocation, no unwinding.
+3. **Volatile zeroing** of the password and of the buffers.
 
-Non ci sono `unsafe` nel renderer, nel layout, nei widget o nei servizi.
+There is no `unsafe` in the renderer, layout, widgets or services.
 
-Allocazioni: dopo il warm-up il frame loop riusa `Scene` (rect + arena + testi),
-i buffer istanziati e la cache layout. Le uniche allocazioni residue sono:
-creazione/distruzione di superfici, cambio di stringhe (orologio, titolo) e
-`format!`/`truncate` per le etichette nelle viste. Il percorso GPU (istanze,
-uniform, atlas, command buffer) non alloca per-frame; quando lo stato è fermo non
-viene nemmeno costruita una scena.
+Allocations: after warm-up the frame loop reuses `Scene` (rects + arena + texts),
+the instance buffers and the layout cache. The only remaining allocations are:
+surface creation/destruction, string changes (clock, title) and
+`format!`/`truncate` for the labels in the views. The GPU path (instances,
+uniforms, atlas, command buffer) does not allocate per frame; when the state is
+still, a scene is not even built.
 
-## 12. Test
+## 12. Tests
 
-- `lard-core`: parsing colori, spring frame-rate independent, retarget con momentum,
-  Bézier, parser `.desktop`/`Exec`, validazione config, config di esempio.
-- `lard-greeter`: validazione service/username, mapping errori PAM; link reale a
-  `libpam` (senza autenticare).
-- `cargo check --workspace` e `cargo build -p lard` verificati.
+- `lard-core`: color parsing, frame-rate independent springs, momentum-preserving
+  retarget, Bézier, `.desktop`/`Exec` parsing, config validation, example config.
+- `lard-greeter`: service/username validation, PAM error mapping; real link to
+  `libpam` (without authenticating).
+- `cargo check --workspace` and `cargo build -p lard` verified.
 
-Manca un test end-to-end con compositore headless; è in roadmap.
+An end-to-end test with a headless compositor is missing; it is on the roadmap.
 
-## 13. Scelte future
+## 13. Future choices
 
-- Atlas RGBA separato per emoji/icone, senza toccare la pipeline R8.
-- Hit-map per superficie per lock/greeter multi-output.
-- Client nativi PipeWire/NM/BlueZ con zbus, eliminando i subprocess.
+- A separate RGBA atlas for emoji/icons, without touching the R8 pipeline.
+- Per-surface hit-map for multi-output lock/greeter.
+- Native PipeWire/NM/BlueZ clients with zbus, removing the subprocesses.
 - SNI tray.
-- Embedded compositor opzionale per un greeter veramente standalone, mantenendo
-  greetd come backend di autenticazione/sessione.
+- Optional embedded compositor for a truly standalone greeter, keeping greetd as
+  the authentication/session backend.

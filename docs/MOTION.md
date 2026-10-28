@@ -1,41 +1,42 @@
-# Motore di animazioni
+# Motion engine
 
-Tutto ciò che si muove in LARD — barra, popover, launcher, OSD, notifiche, lock
-screen — passa da `lard-core/src/anim.rs`. Non è un insieme di `lerp` con una
-durata: è un **oscillatore armonico smorzato risolto in forma chiusa**.
+Everything that moves in LARD — bar, popovers, launcher, OSD, notifications,
+lock screen — goes through `lard-core/src/anim.rs`. It is not a set of
+duration-based `lerp`s: it is a **damped harmonic oscillator solved in closed
+form**.
 
 ```
 x(t) = target + e^(-ζωt) · (x₀·cos(ω_d t) + b·sin(ω_d t))
 ```
 
-Conseguenze pratiche:
+Practical consequences:
 
-- **stessa traiettoria a 30, 60, 120 e 144 Hz**: nessun accumulatore a passo
-  fisso, nessun `dt` da tarare;
-- **non esplode** dopo uno stallo (sospensione, hiccup del compositor): il `dt`
-  viene limitato a 100 ms e la soluzione resta valida;
-- **si interrompe senza strappi**: cambiare target a metà volo conserva
-  posizione *e* velocità, quindi il movimento curva invece di ripartire da zero;
-- **finisce esattamente sul target** (soglie di riposo in distanza e velocità) e
-  smette di chiedere frame.
+- **same trajectory at 30, 60, 120 and 144 Hz**: no fixed-step accumulator, no
+  `dt` to tune;
+- **it cannot explode** after a stall (suspend, compositor hiccup): `dt` is
+  clamped to 100 ms and the solution stays valid;
+- **it can be interrupted without a seam**: changing the target mid-flight keeps
+  position *and* velocity, so the motion curves instead of restarting from zero;
+- **it lands exactly on the target** (rest thresholds on distance and velocity)
+  and stops asking for frames.
 
-## Descrivere una molla
+## Describing a spring
 
-Due vocabolari per la stessa cosa. Quello del config è fisico, quello del codice
-è quello dei designer (modello Apple):
+Two vocabularies for the same thing. The config one is physical, the code one is
+the designer-facing model (Apple's):
 
-| config (`config.toml`) | codice |
+| config (`config.toml`) | code |
 | --- | --- |
 | `stiffness`, `damping`, `mass` | `SpringConfig::from_response(response, damping_ratio)` |
-| — | `response()` = 2π/ω, durata di un'oscillazione in secondi |
-| — | `damping_ratio()` = ζ, 1.0 = nessun rimbalzo |
+| — | `response()` = 2π/ω, one full swing in seconds |
+| — | `damping_ratio()` = ζ, 1.0 = no bounce |
 
-`ζ < 1` rimbalza (`ζ 0.65` ≈ 7 % di overshoot), `ζ = 1` è critico, `ζ > 1` arriva
-lentamente senza mai superare il target. La durata si regola con `response`.
+`ζ < 1` overshoots (`ζ 0.65` ≈ 7 %), `ζ = 1` is critical, `ζ > 1` arrives slowly
+without ever passing the target. Duration is set by `response`.
 
-## Preset
+## Presets
 
-| preset | response | ζ | overshoot | si ferma in | frame @120 Hz |
+| preset | response | ζ | overshoot | settles in | frames @120 Hz |
 | --- | --- | --- | --- | --- | --- |
 | `STRICT` | 0.20 s | 1.00 | 0 % | 0.19 s | 23 |
 | `SNAPPY` | 0.30 s | 0.90 | 0.2 % | 0.24 s | 29 |
@@ -44,53 +45,62 @@ lentamente senza mai superare il target. La durata si regola con `response`.
 | `GENTLE` | 0.60 s | 1.00 | 0 % | 0.45 s | 55 |
 | `GLIDE` | 0.75 s | 0.85 | 0.6 % | 0.47 s | 57 |
 
-Numeri generati da `cargo run --release --example motion -p lard-core`, che
-scrive anche `docs/motion-springs.svg` (posizione e velocità nel tempo).
+Numbers produced by `cargo run --release --example motion -p lard-core`, which
+also writes `docs/motion-springs.svg` (position and velocity over time).
 
-A cosa sono associati, nei default:
+What they are used for, by default:
 
-- `animation.panel` → `SMOOTH` (popover, control center: planata breve, senza rimbalzo);
-- `animation.launcher` → `SMOOTH` (planata più lunga, la card è grande);
-- `animation.osd` → `STRICT` (volume/luminosità devono rispondere subito);
-- `animation.notification` → `BOUNCY` (entrano con un rimbalzo del 7 %).
+- `animation.panel` → `SMOOTH` (popover, control center: short glide, no bounce);
+- `animation.launcher` → `SMOOTH` (the card is large, the motion is longer);
+- `animation.osd` → `STRICT` (volume/brightness must answer immediately);
+- `animation.notification` → `BOUNCY` (they arrive with a 7 % bounce).
 
-## Uscita più rapida dell'ingresso
+## Exit faster than entry
 
-Una chiusura deve *leggere* come più veloce dell'apertura (linee guida Apple):
-il launcher chiude con `response × 0.8` mantenendo la stessa forma, poi riapre
-con il preset configurato.
+A dismissal must *read* as faster than the presentation (Apple's guidance): the
+launcher closes with `response × 0.8` while keeping the same shape, and reopens
+with the configured preset.
+
+## Entry starts when the surface is on screen
+
+A panel is a layer surface: the compositor creates and configures it a few
+frames after `open()`. Starting the spring there would burn most of the
+animation while the surface is still being mapped, and the panel would appear
+fully formed. The shell therefore calls `start_entrance()` (on the launcher,
+popovers, control center, settings, wallpapers and toasts) on the **first
+configure** of the surface.
 
 ## API
 
 ```rust
 use lard_core::anim::{Spring, SpringConfig, Springs, project_velocity};
 
-// Un valore che inseguе un target.
+// A value chasing a target.
 let mut x = Spring::new(0.0, SpringConfig::SNAPPY);
 x.set_target(1.0);
-x.update(dt);                 // -> true finché si muove
-x.value();                    // posizione
-x.fraction(0.0);              // 0..1 per morph/scrim, già clampato
+x.update(dt);                 // -> true while it moves
+x.value();                    // position
+x.fraction(0.0);              // 0..1 for morphs/scrims, already clamped
 
-// Interruzione con continuità: nessun salto.
+// Interruption with continuity: no jump.
 x.set_target(0.0);
 
-// Rilascio di un gesto: la velocità del dito diventa la velocità iniziale.
+// Gesture release: the finger velocity becomes the initial velocity.
 x.set_target_with_velocity(1.0, finger_px_per_second);
 
-// Proiezione di un fling (dove si fermerebbe).
+// Project a fling (where it would come to rest).
 let landing = project_velocity(finger_px_per_second, 8.0);
 
-// Più canali insieme (posizione + scala, oppure RGBA).
+// Several channels at once (position + scale, or RGBA).
 let mut t = Springs::<3>::new([0.0, 0.0, 1.0], SpringConfig::BOUNCY);
 t.set_target([10.0, 20.0, 1.1]);
 ```
 
-Per chi preferisce un solo numero (durata), `CubicBezier` resta disponibile per
-gli elementi che non sono "fisici" (scrim, gradienti di sfondo).
+`CubicBezier` is still available for the few things that are not physical
+(scrims, background gradients).
 
-## Ridurre il movimento
+## Reduced motion
 
-`theme.animation.reduce_motion = true` fa sì che ogni widget chiami `snap_to`
-invece di animare, e `SpringConfig::reduced()` restituisce una molla
-praticamente istantanea per chi costruisce l'animazione a mano.
+`theme.animation.reduce_motion = true` makes every widget call `snap_to` instead
+of animating, and `SpringConfig::reduced()` returns a practically instant spring
+for code that builds the animation by hand.

@@ -301,7 +301,7 @@ impl Default for LauncherConfig {
             // and the list scrolls, instead of hiding the tail.
             max_results: 64,
             corner_radius: 20.0,
-            placeholder: "Cerca applicazioni…".into(),
+            placeholder: "Search applications…".into(),
             idle_timeout_secs: 25,
             show_categories: false,
         }
@@ -500,15 +500,15 @@ impl ScreensaverEffect {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Liquid => "Liquido",
-            Self::Mercury => "Mercurio",
+            Self::Liquid => "Liquid",
+            Self::Mercury => "Mercury",
             Self::Aurora => "Aurora",
-            Self::Waves => "Onde",
-            Self::Grid => "Griglia",
-            Self::Dust => "Polvere",
+            Self::Waves => "Waves",
+            Self::Grid => "Grid",
+            Self::Dust => "Dust",
             Self::Gas => "Gas",
-            Self::Vortex => "Vortice",
-            Self::Storm => "Tempesta",
+            Self::Vortex => "Vortex",
+            Self::Storm => "Storm",
             Self::Tunnel => "Tunnel",
         }
     }

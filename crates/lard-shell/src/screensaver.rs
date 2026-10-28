@@ -369,7 +369,7 @@ impl Screensaver {
         };
         let hint_in = smoothstep(0.9, 1.0, reveal);
         scene.text(
-            "← → scenario · premi un tasto per uscire",
+            "← → scene · press any key to exit",
             Point::new(pad, size.h - pad - fonts.size_small),
             TextStyle {
                 size: fonts.size_small,
@@ -430,7 +430,7 @@ mod tests {
             Size::new(1600.0, 900.0),
             &config,
             "12:00",
-            "mar 20 ott",
+            "Tue 27 Oct",
             &mut scripts,
         );
     }

@@ -48,15 +48,15 @@ impl BatteryState {
     #[must_use]
     pub const fn label(&self) -> &'static str {
         match self.status {
-            BatteryStatus::Charging => "In carica",
-            BatteryStatus::Discharging => "In scarica",
-            BatteryStatus::Full => "Carica",
-            BatteryStatus::NotCharging => "In pausa (alimentazione esterna)",
+            BatteryStatus::Charging => "Charging",
+            BatteryStatus::Discharging => "Discharging",
+            BatteryStatus::Full => "Full",
+            BatteryStatus::NotCharging => "Paused (external power)",
             BatteryStatus::Unknown => {
                 if self.external_power {
-                    "Alimentazione esterna"
+                    "External power"
                 } else {
-                    "Sconosciuto"
+                    "Unknown"
                 }
             }
         }

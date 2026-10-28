@@ -579,9 +579,9 @@ impl Launcher {
         if self.rows.is_empty() {
             scene.text(
                 if self.file_pending {
-                    "Cerco file…"
+                    "Searching files…"
                 } else {
-                    "Nessun risultato"
+                    "No results"
                 },
                 Point::new(card.x, card.y + 76.0),
                 TextStyle {
@@ -733,7 +733,7 @@ impl Launcher {
                         theme.text.scale_alpha(p),
                     );
                     scene.text_center_y(
-                        format!("{expression}    ↵ copia il risultato"),
+                        format!("{expression}    ↵ copy the result"),
                         row_rect.x + 56.0,
                         row_rect.center().y + 10.0,
                         TextStyle {
@@ -840,7 +840,7 @@ impl Launcher {
         }
 
         scene.text(
-            "↑↓ naviga   rotella scorre   ↵ apri   esc chiudi",
+            "↑↓ navigate   wheel scrolls   ↵ open   esc close",
             Point::new(card.x, card.bottom() - 24.0),
             TextStyle {
                 size: fonts.size_small - 1.0,
@@ -1203,7 +1203,7 @@ mod tests {
     #[test]
     fn path_queries_are_detected() {
         assert!(looks_like_path("~"));
-        assert!(looks_like_path("~/Documenti"));
+        assert!(looks_like_path("~/Documents"));
         assert!(looks_like_path("/etc"));
         assert!(looks_like_path("./src"));
         assert!(!looks_like_path("report"));

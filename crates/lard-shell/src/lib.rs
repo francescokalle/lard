@@ -266,7 +266,7 @@ impl Shell {
         let toasts = ToastStack::new(config.animation.notification, reduce_motion);
         let dock = Dock::new(config.animation.panel, reduce_motion);
         let (clock, date) = clock_strings(&config, Local::now());
-        let date_long = italian_date_long(Local::now());
+        let date_long = date_long(Local::now());
         let user = std::env::var("USER")
             .or_else(|_| std::env::var("LOGNAME"))
             .unwrap_or_else(|_| "user".into());
@@ -355,7 +355,7 @@ impl Shell {
             self.dirty = true;
         }
         // The screensaver shows the long Italian date, like the greeter.
-        self.date_long = italian_date_long(now);
+        self.date_long = date_long(now);
     }
 
     pub fn apply(&mut self, event: ServiceEvent) {
@@ -443,7 +443,7 @@ impl Shell {
                     self.wifi_error = None;
                 } else {
                     self.wifi_error =
-                        Some(message.unwrap_or_else(|| "Connessione non riuscita".into()));
+                        Some(message.unwrap_or_else(|| "Connection failed".into()));
                 }
             }
             ServiceEvent::Bluetooth(state) => {
@@ -473,7 +473,7 @@ impl Shell {
                     self.bt_error = None;
                 } else {
                     self.bt_error =
-                        Some(message.unwrap_or_else(|| "Connessione non riuscita".into()));
+                        Some(message.unwrap_or_else(|| "Connection failed".into()));
                 }
             }
             ServiceEvent::SystemStats(stats) => self.system = stats,
@@ -2475,18 +2475,18 @@ impl Shell {
 fn clock_strings(config: &Config, now: DateTime<Local>) -> (String, String) {
     (
         now.format(&config.bar.clock_format).to_string(),
-        italian_date_short(now),
+        date_short(now),
     )
 }
 
-/// Small Italian date formatter, matching the locale used by the rest of the
-/// UI without pulling in a full localization database.
+/// Small English date formatter, so the UI does not pull in a localization
+/// database for two strings.
 #[must_use]
-pub fn italian_date_short(now: DateTime<Local>) -> String {
+pub fn date_short(now: DateTime<Local>) -> String {
     use chrono::Datelike;
-    const WEEKDAYS: [&str; 7] = ["lun", "mar", "mer", "gio", "ven", "sab", "dom"];
+    const WEEKDAYS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     const MONTHS: [&str; 12] = [
-        "gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic",
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
     format!(
         "{} {} {}",
@@ -2497,30 +2497,30 @@ pub fn italian_date_short(now: DateTime<Local>) -> String {
 }
 
 #[must_use]
-pub fn italian_date_long(now: DateTime<Local>) -> String {
+pub fn date_long(now: DateTime<Local>) -> String {
     use chrono::Datelike;
     const WEEKDAYS: [&str; 7] = [
-        "lunedì",
-        "martedì",
-        "mercoledì",
-        "giovedì",
-        "venerdì",
-        "sabato",
-        "domenica",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
     ];
     const MONTHS: [&str; 12] = [
-        "gennaio",
-        "febbraio",
-        "marzo",
-        "aprile",
-        "maggio",
-        "giugno",
-        "luglio",
-        "agosto",
-        "settembre",
-        "ottobre",
-        "novembre",
-        "dicembre",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
     ];
     format!(
         "{} {} {}",
@@ -2578,7 +2578,7 @@ mod tests {
             wifi_enabled: true,
             system: &SystemStats::default(),
             clock: "12:00",
-            date: "mar 20 ott",
+            date: "Tue 27 Oct",
             dnd: false,
             active_toasts: 0,
             toast: None,
@@ -2713,7 +2713,7 @@ mod tests {
         let mut scene = Scene::new();
         shell.build_popover(&mut scene, Size::new(1600.0, 900.0), 600.0);
         let labels: Vec<&str> = scene.texts.iter().map(|t| scene.text_of(t)).collect();
-        assert!(labels.contains(&"Notifiche"), "{labels:?}");
+        assert!(labels.contains(&"Notifications"), "{labels:?}");
     }
 
     #[test]
@@ -2776,7 +2776,7 @@ mod tests {
             wifi_enabled: true,
             system: &SystemStats::default(),
             clock: "12:00",
-            date: "mar 20 ott",
+            date: "Tue 27 Oct",
             dnd: false,
             active_toasts: 0,
             toast: None,

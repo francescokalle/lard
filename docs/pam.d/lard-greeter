@@ -1,12 +1,12 @@
 # /etc/pam.d/lard-greeter
 #
-# Usato dal lockscreen (lard lock) per riautenticare l'utente già
-# loggato. Non viene usato per il login: quello passa da greetd, che applica
-# il proprio stack PAM (tipicamente /etc/pam.d/greetd o login).
+# Used by the lockscreen (lard lock) to re-authenticate the user who is already
+# logged in. It is not used for login: that goes through greetd, which applies
+# its own PAM stack (usually /etc/pam.d/greetd or login).
 #
-# Solo `auth`: deliberatamente niente `account`. Un lockscreen gira come
-# l'utente e su un /etc/shadow standard non può leggere la scadenza password;
-# pam_unix(account) fallirebbe e il lock resterebbe bloccato per sempre.
-# La policy di account (scadenza, orari, faillock) va applicata al login.
+# `auth` only: deliberately no `account`. A lockscreen runs as the user and on a
+# standard /etc/shadow it cannot read the password expiry; pam_unix(account)
+# would fail and the lock would stay stuck forever. The account policy (expiry,
+# time windows, faillock) belongs to the login path.
 
 auth      required   pam_unix.so

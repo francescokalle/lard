@@ -1,11 +1,10 @@
-# lard — configurazione di esempio
+# lard — example configuration
 #
-# Copia in:  $XDG_CONFIG_HOME/lard/config.toml
-# (di solito ~/.config/lard/config.toml)
+# Copy to:  $XDG_CONFIG_HOME/lard/config.toml
+# (usually ~/.config/lard/config.toml)
 #
-# Le sezioni possono essere omesse. Questi sono valori consigliati (i default
-# sono nel codice). I campi sconosciuti sono errori, così un refuso non passa
-# silenziosamente.
+# Sections can be omitted. These are the recommended values (the defaults live
+# in the code). Unknown fields are errors, so a typo never passes silently.
 
 [theme]
 background      = "#17130BF0"   # barra/OSD, alpha < 1 per la blur del compositor
@@ -39,8 +38,8 @@ pill = 999.0      # controlli completamente tondi
 linked = false    # catena: true = ogni angolo segue md
 
 [font]
-# Inter e JetBrains Mono sono incluse nel binario; è possibile usare un font
-# di sistema senza ricompilare.
+# Inter and JetBrains Mono are embedded in the binary; a system font can be used
+# without rebuilding.
 sans            = "Inter"
 mono            = "JetBrains Mono"
 icons           = "Material Icons"
@@ -99,8 +98,8 @@ show_categories  = false
 
 [osd]
 enabled         = true
-# L'OSD ora vive nell'isola centrale della barra. Questi tre valori restano
-# per compatibilità con i config esistenti.
+# The OSD now lives in the centre island of the bar. These three values are kept
+# for compatibility with existing configs.
 width           = 248.0
 height          = 56.0
 margin_bottom   = 72.0
@@ -128,40 +127,40 @@ default_session        = "niri"
 clock_format           = "%H:%M"
 
 [greeter.wallpaper]
-# Cosa mostrare dietro la card di accesso: "wallpaper" (lo sfondo del desktop,
-# scurito) oppure "gradient" (la palette qui sotto).
+# What to show behind the login card: "wallpaper" (the desktop background,
+# darkened) or "gradient" (the palette below).
 background = "wallpaper"
-# Quanto scurire il wallpaper (0-0.95).
+# How much to darken the wallpaper (0-0.95).
 dim = 0.45
 top         = "#141008"
 bottom      = "#2A2113"
 accent_glow = "#8C6A2A"
 
 [screensaver]
-# Effetto fluido a schermo intero quando la sessione è inattiva.
+# Full-screen fluid effect while the session is idle.
 enabled = true
-# Minuti di inattività prima dell'ingresso (1-120).
+# Idle minutes before the entrance (1-120).
 idle_minutes = 5
 # liquid | mercury | aurora
 effect = "liquid"
-# Scenario e composizione diversi a ogni ingresso (le frecce li cambiano al volo).
+# Different scene and composition on every entrance (the arrows switch them).
 random = true
-# Include le scene scritte in ~/.config/lard/scenes/*.rhai.
+# Include the scenes written in ~/.config/lard/scenes/*.rhai.
 script_scenes = true
-# Durata del burn-in in ingresso/uscita (300-2500 ms).
+# Burn-in duration on enter/exit (300-2500 ms).
 entrance_ms = 1300
-# Velocità del flusso (0.1-3.0) e intensità di riflessi/alone (0-1).
+# Flow speed (0.1-3.0) and highlight/halo intensity (0-1).
 speed = 1.0
 intensity = 0.65
-# Quanto viene scurito il desktop sfuocato dietro le forme (0-0.95).
+# How much the blurred desktop behind the shapes is darkened (0-0.95).
 veil = 0.35
-# Polvere luminosa sopra ogni scena (0-1).
+# Bright dust over every scene (0-1).
 dust = 0.35
 show_clock = true
 
 [animation]
-# stiffness: forza di richiamo; damping: attrito; mass: inerzia.
-# I valori sono in unità arbitrarie ma coerenti: 520/38 è "snappy".
+# stiffness: restoring force; damping: friction; mass: inertia.
+# The values are arbitrary but coherent units: 520/38 is "snappy".
 reduce_motion = false
 
 [animation.panel]

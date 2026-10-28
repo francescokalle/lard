@@ -30,7 +30,7 @@ fn run() -> Result<()> {
         "ipc" => {
             let Some(command) = args.get(1) else {
                 eprintln!(
-                    "uso: lard ipc <launcher|controls|control-center|notifications|wifi|bluetooth|battery|system|power-menu|settings|wallpapers|volume-up|volume-down|toggle-mute|lock|quit>"
+                    "usage: lard ipc <launcher|controls|control-center|notifications|wifi|bluetooth|battery|system|power-menu|settings|wallpapers|volume-up|volume-down|toggle-mute|lock|quit>"
                 );
                 std::process::exit(2);
             };
@@ -49,7 +49,7 @@ fn run() -> Result<()> {
             Ok(())
         }
         other => {
-            eprintln!("comando sconosciuto: {other}\n");
+            eprintln!("unknown command: {other}\n");
             print_help();
             std::process::exit(2);
         }
@@ -72,18 +72,19 @@ fn print_help() {
     println!(
         r#"LARD — light as rust dust{}
 
-USO:
-  lard                    avvia bar, launcher, OSD, notifiche, control center
-  lard lock               lockscreen nativo (ext-session-lock + PAM)
-  lard greeter            greeter per greetd (richiede GREETD_SOCK)
-  lard greeter --preview  anteprima UI, autenticazione PAM senza avvio sessione
-  lard ipc <cmd>          invia un comando alla shell in esecuzione
-  lard config-path        stampa il percorso di config.toml
+USAGE:
+  lard                    start bar, launcher, OSD, notifications, control center
+  lard lock               native lockscreen (ext-session-lock + PAM)
+  lard greeter            greetd greeter (needs GREETD_SOCK)
+  lard greeter --preview  UI preview, PAM authentication without starting a session
+  lard ipc <cmd>          send a command to the running shell
+  lard config-path        print the config.toml path
   lard version
 
-COMANDI IPC:
-  launcher, control-center, wifi, bluetooth, power-menu, settings, wallpapers, volume-up,
-  volume-down, toggle-mute, brightness-up, brightness-down, reload, lock, quit
+IPC COMMANDS:
+  launcher, control-center, controls, notifications, wifi, bluetooth, battery, system,
+  power-menu, settings, wallpapers, volume-up, volume-down, toggle-mute,
+  brightness-up, brightness-down, reload, lock, quit
 "#,
         env!("CARGO_PKG_VERSION")
     );

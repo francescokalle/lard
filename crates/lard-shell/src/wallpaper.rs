@@ -415,7 +415,7 @@ impl WallpaperView {
         );
 
         scene.text(
-            "Sfondi",
+            "Wallpapers",
             Point::new(panel.x + 24.0, panel.y + 20.0),
             TextStyle {
                 size: fonts.size_title,
@@ -437,7 +437,7 @@ impl WallpaperView {
             6.0,
         );
         scene.text_center_y(
-            "punto tonale",
+            "tonal point",
             panel.right() - 88.0,
             panel.y + 28.0,
             TextStyle {
@@ -449,7 +449,7 @@ impl WallpaperView {
 
         if self.entries.is_empty() {
             scene.text(
-                "Nessuno sfondo trovato in",
+                "No wallpapers found in",
                 Point::new(panel.x, panel.y + 140.0),
                 TextStyle {
                     size: fonts.size_body,

@@ -174,7 +174,7 @@ impl SceneScripts {
                     if self.last_error.as_deref() != Some(&message) {
                         // Also on stderr: the previews are headless tools without
                         // a tracing subscriber.
-                        eprintln!("lard: scena non compilata: {message}");
+                        eprintln!("lard: scene failed to compile: {message}");
                         tracing::warn!(%message, "cannot compile screensaver scene");
                         self.last_error = Some(message);
                     }
@@ -215,7 +215,7 @@ impl SceneScripts {
                 if array.is_empty() {
                     // Not an array: report once and show the script name so the
                     // user knows the scene loaded but returned nothing useful.
-                    let message = format!("{}: draw() non ha restituito un array", script.path.display());
+                    let message = format!("{}: draw() did not return an array", script.path.display());
                     if self.last_error.as_deref() != Some(&message) {
                         tracing::warn!(%message, "screensaver scene");
                         self.last_error = Some(message);
@@ -226,7 +226,7 @@ impl SceneScripts {
                     if let Some(command) = command_from(item, theme) {
                         self.commands.push(command);
                     } else if index == 0 {
-                        let message = format!("{}: comando non valido", script.path.display());
+                        let message = format!("{}: invalid command", script.path.display());
                         if self.last_error.as_deref() != Some(&message) {
                             tracing::warn!(%message, "screensaver scene");
                             self.last_error = Some(message);
@@ -237,7 +237,7 @@ impl SceneScripts {
             Err(error) => {
                 let message = format!("{}: {error}", script.path.display());
                 if self.last_error.as_deref() != Some(&message) {
-                    eprintln!("lard: scena: {message}");
+                    eprintln!("lard: scene: {message}");
                     tracing::warn!(%message, "screensaver scene");
                     self.last_error = Some(message);
                 }
@@ -370,7 +370,7 @@ mod tests {
         std::fs::write(
             scripts.dir.join("test.rhai"),
             r##"
-            fn name() { "Prova" }
+            fn name() { "Test" }
             fn draw(t, w, h) {
                 [#{ kind: "ring", x: w / 2.0, y: h / 2.0, r: 40.0, width: 2.0, color: "#ffcc00" }]
             }
@@ -378,7 +378,7 @@ mod tests {
         )
         .unwrap();
         scripts.reload();
-        assert_eq!(scripts.names(), vec!["Prova".to_string()]);
+        assert_eq!(scripts.names(), vec!["Test".to_string()]);
 
         let mut scene = Scene::new();
         scripts.draw(

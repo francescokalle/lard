@@ -1,64 +1,48 @@
-# Scene del salvaschermo (Rhai)
+# Screensaver scenes (Rhai)
 
-Le scene scritte dall'utente stanno in `~/.config/lard/scenes/*.rhai` (la
-cartella viene creata al primo avvio con due esempi). Ogni file è una scena
-indipendente e compare in fondo alla lista degli scenari: con `←`/`→` ci si
-arriva dopo le quattro scene integrate, oppure la si può scegliere come
-"predefinita" mettendo `random = false` e usando le frecce.
+User scenes live in `~/.config/lard/scenes/*.rhai` (the folder is created on
+first start with two examples). Every file is an independent scene and appears
+after the built-in ones: `←`/`→` reach it after the four built-in scenes, or it
+can be chosen as "default" by setting `random = false` and using the arrows.
 
-Le scene da script disegnano sopra il fondale (un gradiente scuro) e sotto lo
-strato di polvere luminosa, che resta attivo su tutte le scene.
+Script scenes draw over the backdrop (a dark gradient) and under the bright dust
+layer, which stays active on every scene.
 
-## Contratto
+## Contract
 
 ```rhai
-fn name() { "Il mio nome" }          // opzionale: etichetta mostrata
+fn name() { "My scene" }             // optional: label shown in the UI
 
-fn draw(t, w, h) {                   // t in secondi, w/h in pixel
-    [ /* comandi */ ]
+fn draw(t, w, h) {                   // t in seconds, w/h in pixels
+    [ /* commands */ ]
 }
 ```
 
-`draw` viene chiamata a ogni frame e deve restituire un **array di mappe**.
-Campi comuni:
+`draw` is called every frame and must return an **array of maps**. Common fields:
 
-| campo   | tipo   | significato |
-|---------|--------|-------------|
+| field   | type   | meaning |
+|---------|--------|---------|
 | `kind`  | string | `"disc"` (default), `"ring"`, `"rect"` |
-| `x`, `y`| float  | posizione (per `disc`/`ring` è il centro, per `rect` l'angolo) |
-| `r`     | float  | raggio per `disc` e `ring` |
-| `w`, `h`| float  | dimensioni per `rect` |
-| `width` | float  | spessore del bordo per `ring` |
-| `radius`| float  | angoli per `rect` |
-| `color` | string | `accent`, `text`, `muted`, `danger`, `warning`, `success`, `white`, oppure `#RRGGBB` / `#RRGGBBAA` |
-| `alpha` | float  | 0..1, moltiplicato per la dissolvenza dell'ingresso |
+| `x`, `y`| float  | position (centre for `disc`/`ring`, corner for `rect`) |
+| `r`     | float  | radius for `disc` and `ring` |
+| `w`, `h`| float  | size for `rect` |
+| `width` | float  | border thickness for `ring` |
+| `radius`| float  | corner radius for `rect` |
+| `color` | string | `accent`, `text`, `muted`, `danger`, `warning`, `success`, `white`, or `#RRGGBB` / `#RRGGBBAA` |
+| `alpha` | float  | 0..1, multiplied by the entrance fade |
 
-Limiti: massimo 4000 comandi per frame, 200 000 operazioni per chiamata,
-niente accesso al file system o alla rete (engine sandboxato, nessun modulo).
-Un errore di sintassi o di esecuzione viene loggato una volta e la scena viene
-saltata senza fermare la shell.
+Limits: at most 4000 commands per frame, 200 000 operations per call, no file
+system or network access (sandboxed engine, no modules). A syntax or runtime
+error is logged once and the scene is skipped without stopping the shell.
 
-## Esempio minimo
+## Examples
 
-```rhai
-fn name() { "Orbite" }
+`~/.config/lard/scenes/orbite.rhai` and `nebulosa.rhai` ship with the shell:
+copy them, rename the files and edit the values. The script is recompiled when
+the file changes, so iterating is instant.
 
-fn draw(t, w, h) {
-    let out = [];
-    for i in 0..12 {
-        let a = t * 0.4 + i * 0.523;
-        out.push(#{
-            kind: "disc",
-            x: w / 2.0 + cos(a) * 220.0,
-            y: h / 2.0 + sin(a) * 120.0,
-            r: 18.0,
-            color: "accent",
-            alpha: 0.3,
-        });
-    }
-    out
-}
-```
+## Colours
 
-Modificando un file mentre il salvaschermo è aperto, la cartella viene
-riscansita ogni 3 secondi.
+The palette names resolve to the active theme, so a scene follows the light or
+dark appearance of the shell. `#RRGGBBAA` is useful for glows that must stay
+subtle.

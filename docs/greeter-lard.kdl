@@ -1,10 +1,10 @@
 // /etc/lard/greeter.kdl
-// Config minima per usare niri come compositore ospite del greeter.
-// greetd deve lanciare: niri --config /etc/lard/greeter.kdl
-// (utente greeter). Quando il greeter autentica ed esce, anche niri deve uscire:
-// per questo dopo lard greeter invochiamo `niri msg action quit`.
-// Verifica la sintassi di `spawn-sh-at-startup` e del comando quit sulla tua
-// versione di niri.
+// Minimal config to use niri as the host compositor for the greeter.
+// greetd must launch: niri --config /etc/lard/greeter.kdl
+// (user greeter). When the greeter authenticates and exits, niri must exit too:
+// that is why `niri msg action quit` follows lard greeter.
+// Check the syntax of `spawn-sh-at-startup` and the quit command on your niri
+// version.
 
 input {
     keyboard {
@@ -14,4 +14,4 @@ input {
 
 spawn-at-startup "sh" "-c" "lard greeter; niri msg action quit --skip-confirmation"
 
-// Nessuna bind di sistema: la sola UI è il greeter.
+// No system binds: the greeter is the only UI.

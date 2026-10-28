@@ -1067,7 +1067,7 @@ impl App {
         if let Some(greeter) = &mut self.greeter {
             greeter.set_clock(
                 now.format(&self.config.greeter.clock_format).to_string(),
-                lard_shell::italian_date_long(now),
+                lard_shell::date_long(now),
             );
         }
         self.force_update = true;

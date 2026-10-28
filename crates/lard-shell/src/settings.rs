@@ -132,35 +132,35 @@ pub struct PalettePreview {
 
 pub const PALETTES: [PalettePreview; 5] = [
     PalettePreview {
-        name: "Oro Dank",
+        name: "Dank gold",
         accent: Color::rgba(0.922, 0.757, 0.424, 1.0),
         background: Color::rgba(0.09, 0.075, 0.043, 0.94),
         surface: Color::rgba(0.141, 0.122, 0.09, 0.95),
         text: Color::rgba(0.922, 0.882, 0.831, 1.0),
     },
     PalettePreview {
-        name: "Azzurro",
+        name: "Azure",
         accent: Color::rgba(0.608, 0.757, 1.0, 1.0),
         background: Color::rgba(0.043, 0.051, 0.063, 0.91),
         surface: Color::rgba(0.078, 0.09, 0.11, 0.94),
         text: Color::rgba(0.949, 0.961, 0.976, 1.0),
     },
     PalettePreview {
-        name: "Verde",
+        name: "Green",
         accent: Color::rgba(0.659, 0.835, 0.635, 1.0),
         background: Color::rgba(0.051, 0.071, 0.051, 0.94),
         surface: Color::rgba(0.09, 0.125, 0.09, 0.95),
         text: Color::rgba(0.929, 0.961, 0.918, 1.0),
     },
     PalettePreview {
-        name: "Rosa",
+        name: "Pink",
         accent: Color::rgba(0.949, 0.655, 0.765, 1.0),
         background: Color::rgba(0.078, 0.051, 0.071, 0.94),
         surface: Color::rgba(0.129, 0.086, 0.114, 0.95),
         text: Color::rgba(0.973, 0.929, 0.949, 1.0),
     },
     PalettePreview {
-        name: "Neutro",
+        name: "Neutral",
         accent: Color::rgba(0.839, 0.839, 0.839, 1.0),
         background: Color::rgba(0.071, 0.071, 0.071, 0.94),
         surface: Color::rgba(0.118, 0.118, 0.118, 0.95),
@@ -425,7 +425,7 @@ impl SettingsView {
         self.hits.push((close, SettingsAction::Close));
 
         scene.text(
-            "Impostazioni shell",
+            "Shell settings",
             Point::new(panel.x + 24.0, panel.y + 18.0),
             TextStyle {
                 size: fonts.size_title,
@@ -451,12 +451,12 @@ impl SettingsView {
             theme.radius.card(),
         );
         let tabs = [
-            (SettingsTab::Appearance, icons::PALETTE, "Aspetto"),
-            (SettingsTab::Bar, icons::DASHBOARD, "Barra"),
+            (SettingsTab::Appearance, icons::PALETTE, "Appearance"),
+            (SettingsTab::Bar, icons::DASHBOARD, "Bar"),
             (SettingsTab::Dock, icons::DOCK, "Dock"),
-            (SettingsTab::Effects, icons::BLUR, "Effetti"),
-            (SettingsTab::Screen, icons::SCREEN, "Schermo"),
-            (SettingsTab::Lock, icons::LOCK, "Blocco"),
+            (SettingsTab::Effects, icons::BLUR, "Effects"),
+            (SettingsTab::Screen, icons::SCREEN, "Screen"),
+            (SettingsTab::Lock, icons::LOCK, "Lock"),
             (SettingsTab::Niri, icons::CODE, "Niri"),
             (SettingsTab::Info, icons::INFO, "Info"),
         ];
@@ -535,12 +535,12 @@ impl SettingsView {
 
         let cancel = Rect::new(panel.right() - 214.0, panel.bottom() - 50.0, 92.0, 32.0);
         let save = Rect::new(panel.right() - 112.0, panel.bottom() - 50.0, 88.0, 32.0);
-        self.button(scene, cancel, "Annulla", false, config, p);
-        self.button(scene, save, "Salva", true, config, p);
+        self.button(scene, cancel, "Cancel", false, config, p);
+        self.button(scene, save, "Save", true, config, p);
         self.hits.push((cancel, SettingsAction::Cancel));
         self.hits.push((save, SettingsAction::Save));
         scene.text(
-            "Layout e blur si applicano al salvataggio",
+            "Layout and blur apply on save",
             Point::new(content.x, panel.bottom() - 44.0),
             TextStyle {
                 size: fonts.size_small - 1.5,
@@ -596,14 +596,14 @@ impl SettingsView {
         let theme = &config.theme;
         let fonts = &config.font;
         let title = match self.tab {
-            SettingsTab::Appearance => "Aspetto",
-            SettingsTab::Bar => "Barra",
+            SettingsTab::Appearance => "Appearance",
+            SettingsTab::Bar => "Bar",
             SettingsTab::Dock => "Dock",
-            SettingsTab::Effects => "Effetti",
-            SettingsTab::Screen => "Schermo",
-            SettingsTab::Lock => "Blocco",
-            SettingsTab::Niri => "Config di niri",
-            SettingsTab::Info => "Informazioni",
+            SettingsTab::Effects => "Effects",
+            SettingsTab::Screen => "Screen",
+            SettingsTab::Lock => "Lock",
+            SettingsTab::Niri => "niri config",
+            SettingsTab::Info => "Information",
         };
         scene.text(
             title,
@@ -643,7 +643,7 @@ impl SettingsView {
         // Take the model out so the drawing code can borrow the view.
         let model = self.niri.take().expect("niri configuration loaded");
         scene.text(
-            "Le impostazioni di niri si applicano ai file di configurazione, con un backup automatico.",
+            "niri settings are written to the configuration files, with an automatic backup.",
             Point::new(content.x, y),
             TextStyle {
                 size: fonts.size_small,
@@ -670,7 +670,7 @@ impl SettingsView {
             .or_else(|| view.as_ref().and_then(|view| view.current_mode.clone()))
             .unwrap_or_default();
         scene.text(
-            "Schermo",
+            "Screen",
             Point::new(content.x, cursor_y),
             TextStyle {
                 size: fonts.size_small,
@@ -684,7 +684,7 @@ impl SettingsView {
         self.picker_row(
             scene,
             mode_button,
-            "Risoluzione",
+            "Resolution",
             &mode,
             SettingsAction::NiriOutputModeNext,
             config,
@@ -699,7 +699,7 @@ impl SettingsView {
         self.picker_row(
             scene,
             scale_button,
-            "Scala",
+            "Scale",
             &format!("{scale:.2}"),
             SettingsAction::NiriOutputScaleNext,
             config,
@@ -719,7 +719,7 @@ impl SettingsView {
             content,
             cursor_y,
             NiriSetting::Gaps,
-            "Spazio fra le finestre",
+            "Window gaps",
             &format!("{gaps} px"),
             1,
             config,
@@ -736,7 +736,7 @@ impl SettingsView {
             content,
             cursor_y,
             NiriSetting::CenterFocusedColumn,
-            "Colonna al centro",
+            "Center column",
             &center,
             config,
             p,
@@ -751,7 +751,7 @@ impl SettingsView {
             content,
             cursor_y,
             NiriSetting::ColumnWidth,
-            "Larghezza predefinita",
+            "Default width",
             &format!("{column:.2}"),
             5,
             config,
@@ -767,7 +767,7 @@ impl SettingsView {
             content,
             cursor_y,
             NiriSetting::WindowHeight,
-            "Altezza predefinita",
+            "Default height",
             &format!("{height:.2}"),
             5,
             config,
@@ -781,13 +781,13 @@ impl SettingsView {
         let right = Rect::new(content.x + column_w + 20.0, cursor_y, column_w, content.h);
 
         // --- the windows ---
-        self.niri_section(scene, left.x, left.y, "Finestre", config, p);
+        self.niri_section(scene, left.x, left.y, "Windows", config, p);
         let mut y = left.y + 22.0;
         for (setting, label) in [
-            (NiriSetting::BorderWidth, "Bordo delle finestre"),
-            (NiriSetting::BorderRadius, "Angolo del bordo"),
-            (NiriSetting::FocusRingWidth, "Bordo del focus"),
-            (NiriSetting::FocusRingRadius, "Angolo del focus"),
+            (NiriSetting::BorderWidth, "Window border"),
+            (NiriSetting::BorderRadius, "Border radius"),
+            (NiriSetting::FocusRingWidth, "Focus ring"),
+            (NiriSetting::FocusRingRadius, "Focus ring radius"),
         ] {
             let value = model
                 .value(setting)
@@ -808,7 +808,7 @@ impl SettingsView {
         }
 
         // --- the tab bar ---
-        self.niri_section(scene, right.x, right.y, "Barra delle schede", config, p);
+        self.niri_section(scene, right.x, right.y, "Tab bar", config, p);
         let mut y = right.y + 22.0;
         let tab_enabled = model
             .value(NiriSetting::TabBarEnabled)
@@ -819,7 +819,7 @@ impl SettingsView {
             right,
             y,
             NiriSetting::TabBarEnabled,
-            "Barra delle schede",
+            "Tab bar",
             tab_enabled,
             config,
             p,
@@ -835,7 +835,7 @@ impl SettingsView {
             right,
             y,
             NiriSetting::TabBarPosition,
-            "Posizione",
+            "Position",
             &position,
             config,
             p,
@@ -850,7 +850,7 @@ impl SettingsView {
             right,
             y,
             NiriSetting::TabBarTitle,
-            "Titolo delle schede",
+            "Tab title",
             title,
             config,
             p,
@@ -873,7 +873,7 @@ impl SettingsView {
             theme.radius.control(),
         );
         scene.text_center_y(
-            "Salva e ricarica niri",
+            "Save and reload niri",
             button.x,
             button.center().y,
             TextStyle {
@@ -887,7 +887,7 @@ impl SettingsView {
         );
         self.hits.push((button, SettingsAction::SaveNiri));
         scene.text(
-            "Le modifiche vengono scritte nei file di niri (con backup .bak) e niri viene ricaricato.",
+            "Changes are written to niri files (with a .bak backup) and niri is reloaded.",
             Point::new(content.x, content.bottom() - 30.0),
             TextStyle {
                 size: fonts.size_small - 1.0,
@@ -1221,7 +1221,7 @@ impl SettingsView {
         self.stepper_row_state(
             scene,
             Rect::new(content.x, r1_y, content.w - 44.0, 44.0),
-            "Angolo pannelli",
+            "Panel radius",
             &format!("{} px", config.theme.radius.panel().round() as u32),
             SettingsAction::Step(Step::RadiusLg, -2),
             SettingsAction::Step(Step::RadiusLg, 2),
@@ -1232,7 +1232,7 @@ impl SettingsView {
         self.stepper_row_state(
             scene,
             Rect::new(content.x, r1_y + 48.0, content.w, 44.0),
-            "Angolo card/tile",
+            "Card/tile radius",
             &format!("{master} px"),
             SettingsAction::Step(Step::RadiusMd, -2),
             SettingsAction::Step(Step::RadiusMd, 2),
@@ -1243,7 +1243,7 @@ impl SettingsView {
         self.stepper_row_state(
             scene,
             Rect::new(content.x, r1_y + 96.0, content.w, 44.0),
-            "Angolo controlli",
+            "Control radius",
             &format!("{} px", config.theme.radius.control().round() as u32),
             SettingsAction::Step(Step::RadiusSm, -2),
             SettingsAction::Step(Step::RadiusSm, 2),
@@ -1253,11 +1253,11 @@ impl SettingsView {
         );
         scene.text(
             if linked {
-                "Catena attiva: ogni angolo segue il valore card/tile."
+                "Chain on: every radius follows the card/tile value."
             } else if config.theme.follow_niri {
-                "Sfondo, accento e pericolo seguono niri (layout.background-color, focus-ring.color, border.urgent-color)."
+                "Background, accent and danger follow niri (layout.background-color, focus-ring.color, border.urgent-color)."
             } else {
-                "Suggerimento: la palette si applica a barra, launcher, pannelli e lockscreen."
+                "Tip: the palette applies to bar, launcher, panels and lockscreen."
             },
             Point::new(content.x, r1_y + 150.0),
             TextStyle {
@@ -1272,7 +1272,7 @@ impl SettingsView {
         self.stepper_row(
             scene,
             Rect::new(content.x, y, content.w, 44.0),
-            "Altezza barra",
+            "Bar height",
             &format!("{} px", config.bar.height.round() as u32),
             SettingsAction::Step(Step::BarHeight, -2),
             SettingsAction::Step(Step::BarHeight, 2),
@@ -1282,7 +1282,7 @@ impl SettingsView {
         self.stepper_row(
             scene,
             Rect::new(content.x, y + 52.0, content.w, 44.0),
-            "Angolo isole",
+            "Island radius",
             &format!("{} px", config.bar.corner_radius.round() as u32),
             SettingsAction::Step(Step::BarRadius, -2),
             SettingsAction::Step(Step::BarRadius, 2),
@@ -1292,7 +1292,7 @@ impl SettingsView {
         self.stepper_row(
             scene,
             Rect::new(content.x, y + 104.0, content.w, 44.0),
-            "Opacità isole",
+            "Island opacity",
             &format!("{}%", (config.bar.opacity * 100.0).round() as u32),
             SettingsAction::Step(Step::BarOpacity, -5),
             SettingsAction::Step(Step::BarOpacity, 5),
@@ -1300,33 +1300,33 @@ impl SettingsView {
             p,
         );
         let rows = [
-            (Toggle::Workspaces, "Workspace", "Mostra i workspace niri"),
+            (Toggle::Workspaces, "Workspace", "Show niri workspaces"),
             (
                 Toggle::Title,
-                "Titolo finestra",
-                "Titolo dell'app focalizzata",
+                "Window title",
+                "Title of the focused app",
             ),
-            (Toggle::Clock, "Orologio", "Ora e data al centro"),
+            (Toggle::Clock, "Clock", "Time and date in the centre"),
             (
                 Toggle::System,
                 "CPU / RAM",
-                "Carico nel centro di controllo",
+                "Load in the control center",
             ),
             (
                 Toggle::Volume,
                 "Volume",
-                "Slider volume nel centro di controllo",
+                "Volume slider in the control center",
             ),
-            (Toggle::Network, "Rete", "Wi-Fi nel centro di controllo"),
+            (Toggle::Network, "Rete", "Wi-Fi in the control center"),
             (
                 Toggle::Bluetooth,
                 "Bluetooth",
-                "Bluetooth nel centro di controllo",
+                "Bluetooth in the control center",
             ),
             (
                 Toggle::Battery,
                 "Batteria",
-                "Stato batteria nel centro di controllo",
+                "Battery status in the control center",
             ),
         ];
         let start = y + 158.0;
@@ -1358,11 +1358,11 @@ impl SettingsView {
 
     fn build_dock(&mut self, scene: &mut Scene, content: Rect, y: f32, config: &Config, p: f32) {
         let rows = [
-            (Toggle::Dock, "Dock attivo", "Isola applicazioni in basso"),
+            (Toggle::Dock, "Dock enabled", "Application island at the bottom"),
             (
                 Toggle::DockRunning,
-                "App in esecuzione",
-                "Aggiungi le app aperte alle preferite",
+                "Running apps",
+                "Add open apps to the pinned ones",
             ),
         ];
         for (index, (toggle, label, hint)) in rows.iter().enumerate() {
@@ -1385,7 +1385,7 @@ impl SettingsView {
         self.stepper_row(
             scene,
             Rect::new(content.x, y + 108.0, content.w, 46.0),
-            "Altezza dock",
+            "Dock height",
             &format!("{} px", config.dock.height.round() as u32),
             SettingsAction::Step(Step::DockHeight, -2),
             SettingsAction::Step(Step::DockHeight, 2),
@@ -1395,7 +1395,7 @@ impl SettingsView {
         self.stepper_row(
             scene,
             Rect::new(content.x, y + 162.0, content.w, 46.0),
-            "Opacità dock",
+            "Dock opacity",
             &format!("{}%", (config.dock.opacity * 100.0).round() as u32),
             SettingsAction::Step(Step::DockOpacity, -5),
             SettingsAction::Step(Step::DockOpacity, 5),
@@ -1403,7 +1403,7 @@ impl SettingsView {
             p,
         );
         scene.text(
-            "App fissate",
+            "Pinned apps",
             Point::new(content.x, y + 230.0),
             TextStyle {
                 size: config.font.size_small,
@@ -1423,7 +1423,7 @@ impl SettingsView {
             config.theme.text.scale_alpha(0.86 * p),
         );
         scene.text(
-            "Modifica l'elenco in config.toml → [dock].pinned",
+            "Edit the list in config.toml → [dock].pinned",
             Point::new(content.x, y + 276.0),
             TextStyle {
                 size: config.font.size_small - 1.0,
@@ -1437,18 +1437,18 @@ impl SettingsView {
         let rows = [
             (
                 Toggle::Blur,
-                "Blur pannelli",
+                "Panel blur",
                 "ext-background-effect-v1 su launcher, control center, impostazioni, popover, wallpaper",
             ),
             (
                 Toggle::IslandBlur,
-                "Blur isole",
+                "Island blur",
                 "ext-background-effect-v1 su barre e dock",
             ),
             (
                 Toggle::ReduceMotion,
-                "Riduci movimento",
-                "Disattiva le molle all'avvio",
+                "Reduce motion",
+                "Disable springs at start-up",
             ),
         ];
         for (index, (toggle, label, hint)) in rows.iter().enumerate() {
@@ -1472,7 +1472,7 @@ impl SettingsView {
         self.stepper_row(
             scene,
             Rect::new(content.x, y + 160.0, content.w, 46.0),
-            "Opacità pannelli",
+            "Panel opacity",
             &format!("{}%", (config.theme.overlay_opacity * 100.0).round() as u32),
             SettingsAction::Step(Step::OverlayOpacity, -5),
             SettingsAction::Step(Step::OverlayOpacity, 5),
@@ -1482,7 +1482,7 @@ impl SettingsView {
         self.stepper_row(
             scene,
             Rect::new(content.x, y + 212.0, content.w, 46.0),
-            "Livello vetro",
+            "Glass level",
             &format!("{}%", (config.theme.frost * 100.0).round() as u32),
             SettingsAction::Step(Step::Frost, -5),
             SettingsAction::Step(Step::Frost, 5),
@@ -1490,14 +1490,14 @@ impl SettingsView {
             p,
         );
         let pos = match config.notifications.position {
-            lard_core::theme::ToastPosition::TopRight => "Alto destra",
-            lard_core::theme::ToastPosition::TopLeft => "Alto sinistra",
-            lard_core::theme::ToastPosition::BottomRight => "Basso destra",
-            lard_core::theme::ToastPosition::BottomLeft => "Basso sinistra",
+            lard_core::theme::ToastPosition::TopRight => "Top right",
+            lard_core::theme::ToastPosition::TopLeft => "Top left",
+            lard_core::theme::ToastPosition::BottomRight => "Bottom right",
+            lard_core::theme::ToastPosition::BottomLeft => "Bottom left",
         };
         let rect = Rect::new(content.x, y + 272.0, content.w, 46.0);
         scene.text(
-            "Posizione notifiche",
+            "Notification position",
             Point::new(rect.x, rect.y + 5.0),
             TextStyle {
                 size: config.font.size_body,
@@ -1507,7 +1507,7 @@ impl SettingsView {
             config.theme.text.scale_alpha(p),
         );
         scene.text(
-            "Dove compaiono i toast",
+            "Where toasts appear",
             Point::new(rect.x, rect.y + 24.0),
             TextStyle {
                 size: config.font.size_small - 1.0,
@@ -1540,7 +1540,7 @@ impl SettingsView {
         self.hits
             .push((button, SettingsAction::NextNotificationPosition));
         scene.text(
-            "Il blur viene ricreato al salvataggio. Su niri richiede ext-background-effect-v1.",
+            "Blur is recreated on save. On niri it needs ext-background-effect-v1.",
             Point::new(content.x, y + 348.0),
             TextStyle {
                 size: config.font.size_small - 1.0,
@@ -1562,8 +1562,8 @@ impl SettingsView {
         self.toggle_row(
             scene,
             Rect::new(content.x, y, content.w, row_h),
-            "Salvaschermo",
-            "Effetto fluido a schermo intero quando la sessione è inattiva",
+            "Screensaver",
+            "Full-screen fluid effect while the session is idle",
             saver.enabled,
             SettingsAction::Toggle(Toggle::Screensaver),
             config,
@@ -1572,7 +1572,7 @@ impl SettingsView {
         self.stepper_row_state(
             scene,
             Rect::new(content.x, y + pitch, content.w, row_h),
-            "Dopo",
+            "After",
             &format!("{} min", saver.idle_minutes),
             SettingsAction::Step(Step::ScreensaverIdle, -1),
             SettingsAction::Step(Step::ScreensaverIdle, 1),
@@ -1584,7 +1584,7 @@ impl SettingsView {
         // Scenario picker: three rows of three chips.
         let rect = Rect::new(content.x, y + pitch * 2.0, content.w, 70.0);
         scene.text(
-            "Scenario",
+            "Scene",
             Point::new(rect.x + 8.0, rect.y + 2.0),
             TextStyle {
                 size: fonts.size_body,
@@ -1594,7 +1594,7 @@ impl SettingsView {
             theme.text.scale_alpha(p),
         );
         scene.text(
-            "Frecce ← → per cambiarli al volo",
+            "Arrow keys ← → switch them on the fly",
             Point::new(rect.x + 8.0, rect.y + 21.0),
             TextStyle {
                 size: fonts.size_small - 1.0,
@@ -1663,8 +1663,8 @@ impl SettingsView {
         self.toggle_row(
             scene,
             Rect::new(content.x, y + pitch * 2.0 + 74.0, content.w, row_h),
-            "Casuale",
-            "Scenario e composizione diversi a ogni ingresso",
+            "Random",
+            "Different scene and composition on every entrance",
             saver.random,
             SettingsAction::Toggle(Toggle::ScreensaverRandom),
             config,
@@ -1673,8 +1673,8 @@ impl SettingsView {
         self.toggle_row(
             scene,
             Rect::new(content.x, y + pitch * 3.0 + 74.0, content.w, row_h),
-            "Scene da script",
-            "Aggiunge le scene scritte in ~/.config/lard/scenes alle frecce",
+            "Script scenes",
+            "Adds the scenes written in ~/.config/lard/scenes to the arrows",
             saver.script_scenes,
             SettingsAction::Toggle(Toggle::ScreensaverScripts),
             config,
@@ -1685,7 +1685,7 @@ impl SettingsView {
         let info_y = y + pitch * 4.0 + 74.0;
         let count = self.script_names.len();
         let info = if count == 0 {
-            format!("Nessuna scena in {}", self.script_dir.display())
+            format!("No scenes in {}", self.script_dir.display())
         } else {
             format!(
                 "{}: {} ({})",
@@ -1707,35 +1707,35 @@ impl SettingsView {
         let rows = [
             (
                 Step::ScreensaverVeil,
-                "Vetro",
+                "Glass",
                 format!("{}%", (saver.veil * 100.0).round() as u32),
                 -5,
                 5,
             ),
             (
                 Step::ScreensaverEntrance,
-                "Ingresso",
+                "Entrance",
                 format!("{:.1} s", saver.entrance_secs()),
                 -100,
                 100,
             ),
             (
                 Step::ScreensaverSpeed,
-                "Velocità",
+                "Speed",
                 format!("{:.1}×", saver.speed),
                 -1,
                 1,
             ),
             (
                 Step::ScreensaverIntensity,
-                "Intensità",
+                "Intensity",
                 format!("{}%", (saver.intensity * 100.0).round() as u32),
                 -5,
                 5,
             ),
             (
                 Step::ScreensaverDust,
-                "Polvere",
+                "Dust",
                 format!("{}%", (saver.dust * 100.0).round() as u32),
                 -5,
                 5,
@@ -1767,8 +1767,8 @@ impl SettingsView {
                 content.w,
                 row_h,
             ),
-            "Orologio",
-            "Ora e data nell'angolo del salvaschermo",
+            "Clock",
+            "Time and date in the screensaver corner",
             saver.show_clock,
             SettingsAction::Toggle(Toggle::ScreensaverClock),
             config,
@@ -1785,12 +1785,12 @@ impl SettingsView {
         let pitch = 44.0;
 
         let current = match wallpaper.background {
-            lard_core::theme::LockBackground::Gradient => "Gradiente",
-            lard_core::theme::LockBackground::Wallpaper => "Sfondo del desktop",
+            lard_core::theme::LockBackground::Gradient => "Gradient",
+            lard_core::theme::LockBackground::Wallpaper => "Desktop wallpaper",
         };
         let rect = Rect::new(content.x, y, content.w, row_h + 8.0);
         scene.text(
-            "Sfondo della schermata di blocco",
+            "Lock screen background",
             Point::new(rect.x + 8.0, rect.y + 2.0),
             TextStyle {
                 size: fonts.size_body,
@@ -1800,7 +1800,7 @@ impl SettingsView {
             theme.text.scale_alpha(p),
         );
         scene.text(
-            "Il wallpaper scelto, scurito, oppure il gradiente della palette",
+            "The chosen wallpaper, darkened, or the palette gradient",
             Point::new(rect.x + 8.0, rect.y + 21.0),
             TextStyle {
                 size: fonts.size_small - 1.0,
@@ -1835,7 +1835,7 @@ impl SettingsView {
         self.stepper_row_state(
             scene,
             Rect::new(content.x, y + pitch + 12.0, content.w, row_h),
-            "Velo",
+            "Veil",
             &format!("{}%", (wallpaper.dim * 100.0).round() as u32),
             SettingsAction::Step(Step::LockDim, -5),
             SettingsAction::Step(Step::LockDim, 5),
@@ -1844,7 +1844,7 @@ impl SettingsView {
             false,
         );
         scene.text(
-            "Quanto il wallpaper viene scurito dietro la card di accesso.",
+            "How much the wallpaper is darkened behind the login card.",
             Point::new(content.x + 8.0, y + pitch * 2.0 + 18.0),
             TextStyle {
                 size: fonts.size_small - 1.0,
@@ -1858,12 +1858,12 @@ impl SettingsView {
         let path = Config::effective_path();
         let lines = [
             ("Config", path.display().to_string()),
-            ("Versione", format!("LARD {}", env!("CARGO_PKG_VERSION"))),
+            ("Version", format!("LARD {}", env!("CARGO_PKG_VERSION"))),
             ("Compositor", "niri · Wayland".into()),
             (
-                "Barra",
+                "Bar",
                 format!(
-                    "{} px · {}% opacità",
+                    "{} px · {}% opacity",
                     config.bar.height.round() as u32,
                     (config.bar.opacity * 100.0).round() as u32
                 ),
@@ -1919,7 +1919,7 @@ impl SettingsView {
             );
         }
         scene.text(
-            "La configurazione è TOML e viene salvata con backup .toml.bak.",
+            "The configuration is TOML and is saved with a .toml.bak backup.",
             Point::new(content.x, y + 312.0),
             TextStyle {
                 size: config.font.size_small - 1.0,
@@ -2132,7 +2132,7 @@ pub fn apply_palette_to_wallpaper(wallpaper: &mut GreeterWallpaper, index: usize
 #[must_use]
 pub fn bar_position_label(position: BarPosition) -> &'static str {
     match position {
-        BarPosition::Top => "Alto",
-        BarPosition::Bottom => "Basso",
+        BarPosition::Top => "Top",
+        BarPosition::Bottom => "Bottom",
     }
 }

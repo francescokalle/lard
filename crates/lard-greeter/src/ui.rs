@@ -440,7 +440,7 @@ impl GreeterView {
         if let Some(until) = self.cooldown_until {
             let remaining = until.saturating_duration_since(Instant::now());
             if !remaining.is_zero() {
-                self.error = Some(format!("Riprova tra {}s", remaining.as_secs() + 1));
+                self.error = Some(format!("Retry in {}s", remaining.as_secs() + 1));
                 self.bump_shake();
                 return None;
             }
@@ -449,7 +449,7 @@ impl GreeterView {
 
         let user = self.users.get(self.selected_user)?.name.clone();
         if self.password.is_empty() && !self.config.allow_empty_password {
-            self.error = Some("Inserisci la password".into());
+            self.error = Some("Enter your password".into());
             self.bump_shake();
             return None;
         }
@@ -689,7 +689,7 @@ impl GreeterView {
                 );
                 y += name_size + 4.0;
                 scene.text(
-                    "Sessione bloccata",
+                    "Session locked",
                     Point::new(card.x + pad, y),
                     TextStyle {
                         size: fonts.size_small,
@@ -896,10 +896,10 @@ impl GreeterView {
 
         // Status line below the card.
         let status = if self.pending {
-            Some("Verifica in corso…".to_string())
+            Some("Verifying…".to_string())
         } else {
             self.cooldown_remaining()
-                .map(|s| format!("Riprova tra {s}s"))
+                .map(|s| format!("Retry in {s}s"))
         };
         if let Some(status) = status {
             scene.text(
