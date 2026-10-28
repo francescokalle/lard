@@ -194,8 +194,8 @@ impl Theme {
         light.surface = Color::from_hex("#FFFCF7F5").expect("valid");
         light.surface_hover = Color::from_hex("#EDE4D5FF").expect("valid");
         light.surface_active = Color::from_hex("#DFD3BFFF").expect("valid");
-        light.text = Color::from_hex("#1C1710FF").expect("valid");
-        light.text_muted = Color::from_hex("#5C5346FF").expect("valid");
+        light.text = Color::from_hex("#120F0AFF").expect("valid");
+        light.text_muted = Color::from_hex("#2E2820FF").expect("valid");
         // Accent: darken while keeping the hue, then use light text on it.
         let (r, g, b) = (self.accent.r, self.accent.g, self.accent.b);
         let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
@@ -210,12 +210,12 @@ impl Theme {
         light.danger = Color::from_hex("#B3261EFF").expect("valid");
         light.warning = Color::from_hex("#8A5B00FF").expect("valid");
         light.success = Color::from_hex("#1E7A45FF").expect("valid");
-        light.border = Color::from_hex("#1F150A26").expect("valid");
+        light.border = Color::from_hex("#2A1E1033").expect("valid");
         light.shadow = Color::from_hex("#00000026").expect("valid");
         // Light glass needs to be a bit more opaque: over a dark wallpaper the
         // same alpha reads as mud.
-        light.overlay_opacity = (self.overlay_opacity + 0.16).min(0.92);
-        light.frost = (self.frost + 0.08).min(0.95);
+        light.overlay_opacity = (self.overlay_opacity + 0.14).min(0.90);
+        light.frost = (self.frost + 0.06).min(0.92);
         light.mode = self.mode;
         light.base = None;
         light

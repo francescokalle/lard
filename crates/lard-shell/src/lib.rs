@@ -1912,6 +1912,10 @@ impl Shell {
             SettingsAction::Save => self.close_settings(true),
             SettingsAction::Tab(tab) => self.settings.select_tab(tab),
             SettingsAction::ThemeMode(mode) => self.set_theme_mode(mode),
+            SettingsAction::SelectOutput(index) => {
+                self.settings.select_output(index);
+                self.dirty = true;
+            }
             SettingsAction::Theme(index) => {
                 // Palettes write the canonical (dark) palette, never the
                 // derived light one.

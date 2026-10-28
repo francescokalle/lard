@@ -72,7 +72,11 @@ impl IpcCommand {
             "settings-screen" | "settings-screensaver" => {
                 Some(Self::Settings(Some(SettingsTab::Screen)))
             }
-            "settings-niri" => Some(Self::Settings(Some(SettingsTab::Niri))),
+            "settings-niri" | "settings-advanced" => {
+                Some(Self::Settings(Some(SettingsTab::AdvancedNiri)))
+            }
+            "settings-displays" => Some(Self::Settings(Some(SettingsTab::Displays))),
+            "settings-windows" => Some(Self::Settings(Some(SettingsTab::Windows))),
             "settings-info" => Some(Self::Settings(Some(SettingsTab::Info))),
             "wallpapers" | "wallpaper" => Some(Self::Wallpapers),
             "volume-up" => Some(Self::VolumeUp),

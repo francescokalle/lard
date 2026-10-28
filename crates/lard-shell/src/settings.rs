@@ -23,8 +23,12 @@ pub enum SettingsTab {
     Screen,
     /// Lock screen background.
     Lock,
-    /// Edit the niri configuration files.
-    Niri,
+    /// Monitors: resolution and scale per output.
+    Displays,
+    /// Window management: gaps, borders, focus ring, tab bar.
+    Windows,
+    /// Rarely needed niri knobs.
+    AdvancedNiri,
     Info,
 }
 
@@ -99,8 +103,18 @@ pub enum SettingsAction {
     ScreensaverEffect(usize),
     /// Cycle the lock screen background (gradient / wallpaper).
     NextLockBackground,
+    /// Select the monitor to configure.
+    SelectOutput(usize),
     /// Save the edited niri configuration file and reload it.
     SaveNiri,
+}
+
+/// Which slice of the niri configuration a settings tab shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NiriPage {
+    Displays,
+    Windows,
+    Advanced,
 }
 
 pub struct SettingsView {
@@ -370,7 +384,7 @@ impl SettingsView {
         let fonts = &config.font;
         scene.rect(
             Rect::new(0.0, 0.0, size.w, size.h),
-            theme.background.with_alpha(0.16 * p),
+            theme.shadow.with_alpha(0.16 * p),
             0.0,
         );
 
@@ -442,7 +456,7 @@ impl SettingsView {
                 size: fonts.size_small - 1.0,
                 ..Default::default()
             },
-            theme.text_muted.scale_alpha(0.65 * p),
+            theme.text_muted.scale_alpha(0.82 * p),
         );
 
         let sidebar = Rect::new(panel.x + 16.0, panel.y + 72.0, 190.0, panel.h - 134.0);
@@ -458,7 +472,9 @@ impl SettingsView {
             (SettingsTab::Effects, icons::BLUR, "Effects"),
             (SettingsTab::Screen, icons::SCREEN, "Screen"),
             (SettingsTab::Lock, icons::LOCK, "Lock"),
-            (SettingsTab::Niri, icons::CODE, "Niri"),
+            (SettingsTab::Displays, icons::SCREEN, "Displays"),
+            (SettingsTab::Windows, icons::DASHBOARD, "Windows"),
+            (SettingsTab::AdvancedNiri, icons::CODE, "Advanced"),
             (SettingsTab::Info, icons::INFO, "Info"),
         ];
         for (index, (tab, icon, label)) in tabs.iter().enumerate() {
@@ -492,7 +508,7 @@ impl SettingsView {
                 if selected {
                     theme.accent.scale_alpha(p)
                 } else {
-                    theme.text_muted.scale_alpha(0.8 * p)
+                    theme.text_muted.scale_alpha(0.95 * p)
                 },
             );
             scene.text_center_y(
@@ -511,7 +527,7 @@ impl SettingsView {
                 if selected {
                     theme.text.scale_alpha(p)
                 } else {
-                    theme.text_muted.scale_alpha(0.8 * p)
+                    theme.text_muted.scale_alpha(0.95 * p)
                 },
             );
             self.hits.push((rect, SettingsAction::Tab(*tab)));
@@ -523,7 +539,7 @@ impl SettingsView {
                 size: fonts.size_small - 1.0,
                 ..Default::default()
             },
-            theme.text_muted.scale_alpha(0.45 * p),
+            theme.text_muted.scale_alpha(0.75 * p),
         );
 
         let content = Rect::new(
@@ -547,7 +563,7 @@ impl SettingsView {
                 size: fonts.size_small - 1.5,
                 ..Default::default()
             },
-            theme.text_muted.scale_alpha(0.45 * p),
+            theme.text_muted.scale_alpha(0.75 * p),
         );
     }
 
@@ -593,6 +609,15 @@ impl SettingsView {
         );
     }
 
+    /// Pick the monitor the form edits.
+    pub fn select_output(&mut self, index: usize) {
+        if let Some(output) = self.outputs.get(index) {
+            self.output = Some(output.name.clone());
+            // Force a reload of the model for the new output block.
+            self.niri = None;
+        }
+    }
+
     fn build_tab(&mut self, scene: &mut Scene, content: Rect, config: &Config, p: f32) {
         let theme = &config.theme;
         let fonts = &config.font;
@@ -603,7 +628,9 @@ impl SettingsView {
             SettingsTab::Effects => "Effects",
             SettingsTab::Screen => "Screen",
             SettingsTab::Lock => "Lock",
-            SettingsTab::Niri => "niri config",
+            SettingsTab::Displays => "Monitors and scale",
+            SettingsTab::Windows => "Window management",
+            SettingsTab::AdvancedNiri => "Advanced niri",
             SettingsTab::Info => "Information",
         };
         scene.text(
@@ -624,13 +651,25 @@ impl SettingsView {
             SettingsTab::Effects => self.build_effects(scene, content, y, config, p),
             SettingsTab::Screen => self.build_screen(scene, content, y, config, p),
             SettingsTab::Lock => self.build_lock(scene, content, y, config, p),
-            SettingsTab::Niri => self.build_niri(scene, content, y, config, p),
+            SettingsTab::Displays => self.build_niri(NiriPage::Displays, scene, content, y, config, p),
+            SettingsTab::Windows => self.build_niri(NiriPage::Windows, scene, content, y, config, p),
+            SettingsTab::AdvancedNiri => {
+                self.build_niri(NiriPage::Advanced, scene, content, y, config, p)
+            }
             SettingsTab::Info => self.build_info(scene, content, y, config, p),
         }
     }
 
-    /// The niri configuration, as a form.
-    fn build_niri(&mut self, scene: &mut Scene, content: Rect, y: f32, config: &Config, p: f32) {
+    /// The niri configuration, as a form, split by page.
+    fn build_niri(
+        &mut self,
+        page: NiriPage,
+        scene: &mut Scene,
+        content: Rect,
+        y: f32,
+        config: &Config,
+        p: f32,
+    ) {
         let theme = &config.theme;
         let fonts = &config.font;
         let dir = crate::niri_config::niri_config_dir();
@@ -650,12 +689,13 @@ impl SettingsView {
                 size: fonts.size_small,
                 ..Default::default()
             },
-            theme.text_muted.scale_alpha(0.7 * p),
+            theme.text_muted.scale_alpha(0.85 * p),
         );
 
         let mut cursor_y = y + 26.0;
         let row_h = 34.0;
 
+        if matches!(page, NiriPage::Displays) {
         // --- the screen ---
         // The runtime values are the fallback when the configuration does not
         // pin the mode or the scale.
@@ -678,7 +718,7 @@ impl SettingsView {
                 weight: fonts.weight_medium,
                 ..Default::default()
             },
-            theme.text_muted.scale_alpha(0.8 * p),
+            theme.text_muted.scale_alpha(0.95 * p),
         );
         cursor_y += 20.0;
         let mode_button = Rect::new(content.x, cursor_y, 260.0, row_h);
@@ -708,6 +748,73 @@ impl SettingsView {
         );
         cursor_y += row_h + 18.0;
 
+        // --- monitors: pick one, then edit its resolution/scale above ---
+        self.niri_section(scene, content.x, cursor_y, "Monitors", config, p);
+        cursor_y += 22.0;
+        let selected = output.clone().unwrap_or_default();
+        for (index, monitor) in self.outputs.iter().enumerate() {
+            let row = Rect::new(content.x, cursor_y, content.w, row_h);
+            let active = monitor.name == selected;
+            let hovered = self.cursor.is_some_and(|cursor| row.contains(cursor));
+            scene.rect(
+                row,
+                if active {
+                    theme.accent.with_alpha(0.16 * p)
+                } else if hovered {
+                    theme.surface_hover.scale_alpha(0.8 * p)
+                } else {
+                    theme.background.scale_alpha(0.5 * p)
+                },
+                theme.radius.control(),
+            );
+            scene.text_center_y(
+                &monitor.name,
+                row.x + 12.0,
+                row.center().y,
+                TextStyle {
+                    size: fonts.size_body - 1.0,
+                    weight: fonts.weight_medium,
+                    max_width: Some(row.w * 0.4),
+                    wrap: false,
+                    ..Default::default()
+                },
+                theme.text.scale_alpha(0.92 * p),
+            );
+            scene.text_center_y(
+                format!(
+                    "{} · {:.2}×",
+                    monitor.current_mode.clone().unwrap_or_else(|| "auto".into()),
+                    monitor.scale
+                ),
+                row.x + 12.0,
+                row.center().y,
+                TextStyle {
+                    size: fonts.size_small,
+                    align: TextAlign::Right,
+                    max_width: Some(row.w - 24.0),
+                    ..Default::default()
+                },
+                theme.text_muted.scale_alpha(0.95 * p),
+            );
+            self.hits.push((row, SettingsAction::SelectOutput(index)));
+            cursor_y += row_h + 6.0;
+        }
+        if self.outputs.is_empty() {
+            scene.text(
+                "No outputs reported by niri",
+                Point::new(content.x + 12.0, cursor_y + 8.0),
+                TextStyle {
+                    size: fonts.size_small,
+                    ..Default::default()
+                },
+                theme.text_muted.scale_alpha(0.85 * p),
+            );
+            cursor_y += 24.0;
+        }
+        cursor_y += 12.0;
+        }
+
+        if matches!(page, NiriPage::Windows) {
         // --- the layout ---
         self.niri_section(scene, content.x, cursor_y, "Layout", config, p);
         cursor_y += 22.0;
@@ -857,6 +964,46 @@ impl SettingsView {
             p,
         );
 
+        }
+
+        if matches!(page, NiriPage::Advanced) {
+            self.niri_section(scene, content.x, cursor_y, "Reserved space", config, p);
+            cursor_y += 22.0;
+            for (setting, label) in [
+                (NiriSetting::StrutTop, "Top"),
+                (NiriSetting::StrutRight, "Right"),
+                (NiriSetting::StrutBottom, "Bottom"),
+                (NiriSetting::StrutLeft, "Left"),
+            ] {
+                let value = model
+                    .value(setting)
+                    .and_then(NiriValue::as_int)
+                    .unwrap_or(0);
+                self.niri_number(
+                    scene,
+                    content,
+                    cursor_y,
+                    setting,
+                    label,
+                    &format!("{value} px"),
+                    1,
+                    config,
+                    p,
+                );
+                cursor_y += row_h;
+            }
+            cursor_y += 10.0;
+            scene.text(
+                "Rarely needed: these reserve space around the layout. Everything else\nlives in Appearance, Effects, Displays and Windows.",
+                Point::new(content.x, cursor_y),
+                TextStyle {
+                    size: fonts.size_small,
+                    ..Default::default()
+                },
+                theme.text_muted.scale_alpha(0.82 * p),
+            );
+        }
+
         // The apply button: the changes are written to the files and niri is
         // asked to reload them.
         let button = Rect::new(
@@ -894,7 +1041,7 @@ impl SettingsView {
                 size: fonts.size_small - 1.0,
                 ..Default::default()
             },
-            theme.text_muted.scale_alpha(0.5 * p),
+            theme.text_muted.scale_alpha(0.72 * p),
         );
         self.niri = Some(model);
     }
@@ -917,7 +1064,7 @@ impl SettingsView {
                 weight: config.font.weight_medium,
                 ..Default::default()
             },
-            config.theme.text_muted.scale_alpha(0.8 * p),
+            config.theme.text_muted.scale_alpha(0.95 * p),
         );
     }
 
@@ -1042,7 +1189,7 @@ impl SettingsView {
             if on {
                 theme.accent_text.scale_alpha(p)
             } else {
-                theme.text_muted.scale_alpha(0.8 * p)
+                theme.text_muted.scale_alpha(0.95 * p)
             },
             11.0,
         );
@@ -1119,7 +1266,7 @@ impl SettingsView {
                 weight: fonts.weight_medium,
                 ..Default::default()
             },
-            theme.text_muted.scale_alpha(0.8 * p),
+            theme.text_muted.scale_alpha(0.95 * p),
         );
         let gap = 10.0;
         let chip_w = (content.w - gap * 2.0) / 3.0;
@@ -1188,7 +1335,7 @@ impl SettingsView {
                 weight: fonts.weight_medium,
                 ..Default::default()
             },
-            theme.text_muted.scale_alpha(0.8 * p),
+            theme.text_muted.scale_alpha(0.95 * p),
         );
         let columns = 3;
         let card_w = (content.w - 16.0 * (columns - 1) as f32) / columns as f32;
@@ -1240,7 +1387,7 @@ impl SettingsView {
                     weight: fonts.weight_medium,
                     ..Default::default()
                 },
-                palette.text.scale_alpha(p),
+                theme.text.scale_alpha(p),
             );
             scene.text(
                 palette.accent.to_hex(),
@@ -1249,7 +1396,7 @@ impl SettingsView {
                     size: fonts.size_small - 1.0,
                     ..Default::default()
                 },
-                theme.text_muted.scale_alpha(0.65 * p),
+                theme.text_muted.scale_alpha(0.82 * p),
             );
             self.hits.push((rect, SettingsAction::Theme(index)));
         }
@@ -1284,7 +1431,7 @@ impl SettingsView {
             if linked {
                 theme.accent.scale_alpha(p)
             } else {
-                theme.text_muted.scale_alpha(0.8 * p)
+                theme.text_muted.scale_alpha(0.95 * p)
             },
         );
         self.hits
@@ -1335,7 +1482,7 @@ impl SettingsView {
                 size: fonts.size_small - 1.0,
                 ..Default::default()
             },
-            theme.text_muted.scale_alpha(0.5 * p),
+            theme.text_muted.scale_alpha(0.72 * p),
         );
     }
 
@@ -1481,7 +1628,7 @@ impl SettingsView {
                 weight: config.font.weight_medium,
                 ..Default::default()
             },
-            config.theme.text_muted.scale_alpha(0.8 * p),
+            config.theme.text_muted.scale_alpha(0.95 * p),
         );
         let pins = config.dock.pinned.join("  ·  ");
         scene.text(
@@ -1500,7 +1647,7 @@ impl SettingsView {
                 size: config.font.size_small - 1.0,
                 ..Default::default()
             },
-            config.theme.text_muted.scale_alpha(0.5 * p),
+            config.theme.text_muted.scale_alpha(0.72 * p),
         );
     }
 
@@ -1584,7 +1731,7 @@ impl SettingsView {
                 size: config.font.size_small - 1.0,
                 ..Default::default()
             },
-            config.theme.text_muted.scale_alpha(0.6 * p),
+            config.theme.text_muted.scale_alpha(0.78 * p),
         );
         let button = Rect::new(rect.right() - 132.0, rect.y + 7.0, 132.0, 30.0);
         let hovered = self.cursor.is_some_and(|c| button.contains(c));
@@ -1617,7 +1764,7 @@ impl SettingsView {
                 size: config.font.size_small - 1.0,
                 ..Default::default()
             },
-            config.theme.text_muted.scale_alpha(0.5 * p),
+            config.theme.text_muted.scale_alpha(0.72 * p),
         );
     }
 
@@ -1671,7 +1818,7 @@ impl SettingsView {
                 size: fonts.size_small - 1.0,
                 ..Default::default()
             },
-            theme.text_muted.scale_alpha(0.58 * p),
+            theme.text_muted.scale_alpha(0.85 * p),
         );
         let chip_h = 22.0;
         let gap = 4.0;
@@ -1722,7 +1869,7 @@ impl SettingsView {
                 if selected {
                     theme.accent_text.scale_alpha(0.92 * p)
                 } else if dimmed || saver.random {
-                    theme.text_muted.scale_alpha(0.4 * p)
+                    theme.text_muted.scale_alpha(0.7 * p)
                 } else {
                     theme.text.scale_alpha(0.85 * p)
                 },
@@ -1772,7 +1919,7 @@ impl SettingsView {
                 size: fonts.size_small - 1.0,
                 ..Default::default()
             },
-            theme.text_muted.scale_alpha(0.55 * p),
+            theme.text_muted.scale_alpha(0.8 * p),
         );
 
         let rows = [
@@ -1877,7 +2024,7 @@ impl SettingsView {
                 size: fonts.size_small - 1.0,
                 ..Default::default()
             },
-            theme.text_muted.scale_alpha(0.58 * p),
+            theme.text_muted.scale_alpha(0.85 * p),
         );
         let button = Rect::new(rect.right() - 186.0, rect.y + 5.0, 186.0, 30.0);
         let hovered = self.cursor.is_some_and(|c| button.contains(c));
@@ -1921,7 +2068,7 @@ impl SettingsView {
                 size: fonts.size_small - 1.0,
                 ..Default::default()
             },
-            theme.text_muted.scale_alpha(0.5 * p),
+            theme.text_muted.scale_alpha(0.72 * p),
         );
     }
 
@@ -1973,7 +2120,7 @@ impl SettingsView {
                     size: config.font.size_small,
                     ..Default::default()
                 },
-                config.theme.text_muted.scale_alpha(0.7 * p),
+                config.theme.text_muted.scale_alpha(0.85 * p),
             );
             scene.text_center_y(
                 value,
@@ -1996,7 +2143,7 @@ impl SettingsView {
                 size: config.font.size_small - 1.0,
                 ..Default::default()
             },
-            config.theme.text_muted.scale_alpha(0.5 * p),
+            config.theme.text_muted.scale_alpha(0.72 * p),
         );
     }
 
@@ -2039,7 +2186,7 @@ impl SettingsView {
                 size: fonts.size_small - 1.0,
                 ..Default::default()
             },
-            theme.text_muted.scale_alpha(0.58 * p),
+            theme.text_muted.scale_alpha(0.85 * p),
         );
         let switch = Rect::new(rect.right() - 52.0, rect.y + 8.0, 44.0, 24.0);
         scene.rect(
@@ -2061,7 +2208,7 @@ impl SettingsView {
             if value {
                 theme.accent_text.scale_alpha(p)
             } else {
-                theme.text_muted.scale_alpha(0.8 * p)
+                theme.text_muted.scale_alpha(0.95 * p)
             },
             10.0,
         );

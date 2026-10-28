@@ -383,7 +383,7 @@ impl WallpaperView {
         let fonts = &config.font;
         scene.rect(
             Rect::new(0.0, 0.0, size.w, size.h),
-            theme.background.with_alpha(0.16 * p),
+            theme.shadow.with_alpha(0.16 * p),
             0.0,
         );
         let width = 1100.0_f32.min(size.w - 60.0);

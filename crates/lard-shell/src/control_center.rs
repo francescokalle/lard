@@ -604,7 +604,7 @@ impl ControlCenter {
 
         scene.rect(
             Rect::new(0.0, 0.0, size.w, size.h),
-            theme.background.with_alpha(0.14 * p),
+            theme.shadow.with_alpha(0.14 * p),
             0.0,
         );
         self.hits
