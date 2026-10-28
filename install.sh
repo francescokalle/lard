@@ -33,6 +33,7 @@ ASSUME_YES=0
 TERMINAL=""
 TERMINAL_ASKED=0
 DO_EXTRAS=1
+DO_SETUP=1
 BINARY_OVERRIDE=""
 LOG_FILE=""
 UI_TTY=0
@@ -102,6 +103,7 @@ OPTIONS
   --terminal NAME             terminal to install (kitty, foot, alacritty, wezterm,
                               gnome-terminal, xterm, none); if omitted, asks
   --no-extras                 do not install the optional tools (clipboard, brightness)
+  --no-system-setup           do not configure portals/audio/services/autostart beyond LARD
   --no-enable                 do not enable autostart
   --no-pam / --no-config / --no-greeter / --no-docs / --no-systemd
   --uninstall                 uninstall
@@ -151,6 +153,7 @@ while [ "$#" -gt 0 ]; do
         --terminal) need_arg "$@"; TERMINAL="$2"; TERMINAL_ASKED=1; shift ;;
         --terminal=*) TERMINAL="${1#*=}"; TERMINAL_ASKED=1 ;;
         --no-extras) DO_EXTRAS=0 ;;
+        --no-system-setup) DO_SETUP=0 ;;
         --no-enable) DO_ENABLE=0 ;;
         --enable) DO_ENABLE=1 ;;
         -y|--yes) ASSUME_YES=1 ;;
@@ -538,6 +541,107 @@ install_fonts() {
     ui_ok "fonts" "$count fonts available"
 }
 
+# Install a package only when its command/unit is missing.
+have() { command -v "$1" >/dev/null 2>&1; }
+
+pm_install() {
+    local -a pkgs=("$@")
+    [ "${#pkgs[@]}" -gt 0 ] || return 0
+    [ "$DRY_RUN" -eq 1 ] && { ui_skip "packages" "[dry-run] would install: ${pkgs[*]}"; return 0; }
+    sudo_warmup
+    case "$(package_manager)" in
+        pacman) run_spin "packages" as_root pacman -S --needed --noconfirm "${pkgs[@]}" ;;
+        apt-get) as_root apt-get update >>"$LOG_FILE" 2>&1 || true
+                run_spin "packages" as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "${pkgs[@]}" ;;
+        dnf) run_spin "packages" as_root dnf install -y "${pkgs[@]}" ;;
+        zypper) run_spin "packages" as_root zypper --non-interactive install "${pkgs[@]}" ;;
+        *) ui_warn "no package manager for: ${pkgs[*]}"; return 1 ;;
+    esac
+}
+
+# Add a line to niri's config once (with a backup).
+niri_spawn() { # niri_spawn "<command line>"
+    local cfg="${XDG_CONFIG_HOME:-$HOME/.config}/niri/config.kdl" line="$1"
+    [ -f "$cfg" ] || return 0
+    grep -Fq "$line" "$cfg" && return 0
+    if [ "$DRY_RUN" -eq 1 ]; then
+        ui_skip "autostart" "[dry-run] would add: $line"
+        return 0
+    fi
+    cp -a "$cfg" "$cfg.bak-$(date +%Y%m%d%H%M%S)"
+    printf '\n// >>> lard\n%s\n// <<< lard\n' "$line" >> "$cfg"
+}
+
+# Everything that makes a fresh system usable with LARD: fonts (already done),
+# portals, audio, the polkit agent, network/bluetooth services and the session
+# autostart of the helper daemons.
+setup_system() {
+    if [ "$DO_SETUP" -eq 0 ] || staged || [ "$USER_MODE" -eq 1 ]; then
+        ui_skip "system" "not requested"
+        return 0
+    fi
+    detect_family
+
+    # 1) XDG portals: needed by browsers, file pickers, the color scheme.
+    local -a portals=()
+    case "$FAMILY" in
+        arch) portals=(xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr) ;;
+        debian) portals=(xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr) ;;
+        fedora) portals=(xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr) ;;
+        suse) portals=(xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr) ;;
+    esac
+    if [ "${#portals[@]}" -gt 0 ] && ! have xdg-desktop-portal; then
+        pm_install "${portals[@]}" || ui_warn "portals not installed"
+    fi
+    ui_ok "portals" "xdg-desktop-portal ready"
+
+    # 2) Audio stack (volume OSD): wireplumber + pipewire.
+    if ! have wpctl; then
+        case "$FAMILY" in
+            arch) pm_install pipewire pipewire-pulse wireplumber ;;
+            debian) pm_install pipewire pipewire-pulse wireplumber ;;
+            fedora) pm_install pipewire pipewire-pulseaudio wireplumber ;;
+            suse) pm_install pipewire pipewire-pulseaudio wireplumber ;;
+        esac || ui_warn "audio stack not installed"
+    fi
+    if [ "$DRY_RUN" -eq 0 ] && command -v systemctl >/dev/null 2>&1; then
+        systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service \
+            >/dev/null 2>&1 || true
+    fi
+    ui_ok "audio" "pipewire/wireplumber enabled"
+
+    # 3) Polkit agent: suspend/reboot from the UI go through logind.
+    if ! pgrep -f "polkit.*authentication-agent" >/dev/null 2>&1; then
+        case "$FAMILY" in
+            arch) pm_install polkit-gnome ;;
+            debian) pm_install polkit-gnome ;;
+            fedora) pm_install polkit-gnome ;;
+            suse) pm_install polkit-gnome ;;
+        esac || true
+        niri_spawn 'spawn-at-startup "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1"'
+    fi
+    ui_ok "polkit" "agent autostarted"
+
+    # 4) System services that already exist: just enable them.
+    if [ "$DRY_RUN" -eq 0 ] && command -v systemctl >/dev/null 2>&1; then
+        if systemctl list-unit-files NetworkManager.service >/dev/null 2>&1; then
+            as_root systemctl enable --now NetworkManager.service >/dev/null 2>&1 || true
+        fi
+        if [ -d /sys/class/bluetooth ] || have bluetoothctl; then
+            as_root systemctl enable --now bluetooth.service >/dev/null 2>&1 || true
+        fi
+    fi
+    ui_ok "services" "NetworkManager/Bluetooth enabled when present"
+
+    # 5) Session autostart of the helper daemons.
+    if have awww; then
+        niri_spawn 'spawn-at-startup "awww-daemon"'
+        ui_ok "wallpaper" "awww-daemon autostarted"
+    else
+        ui_warn "awww (wallpaper daemon) missing: the wallpaper picker will not work"
+    fi
+}
+
 install_runtime() {
     detect_family
     if [ "$DRY_RUN" -eq 0 ] && [ -r /dev/tty ] && [ "$TERMINAL_ASKED" -eq 0 ] \
@@ -923,6 +1027,7 @@ EOF
 
     enable_autostart
     install_boot
+    setup_system
 
     if [ "$DRY_RUN" -eq 0 ] && [ -x "$PREFIX/bin/lard" ]; then
         if "$PREFIX/bin/lard" version >/dev/null 2>&1; then
@@ -937,6 +1042,12 @@ EOF
         return 0
     fi
     printf '\n  %s✓ LARD installed%s\n' "$C_GREEN$C_BOLD" "$C_RESET"
+    printf '  %sready:%s niri %s · fonts %s · portals %s · autostart %s\n' \
+        "$C_GREY" "$C_RESET" \
+        "$(command -v niri >/dev/null 2>&1 && echo yes || echo no)" \
+        "$(fc-list 2>/dev/null | wc -l)" \
+        "$(command -v xdg-desktop-portal >/dev/null 2>&1 && echo yes || echo no)" \
+        "$([ -f "${XDG_CONFIG_HOME:-$HOME/.config}/niri/config.kdl" ] && grep -q 'spawn-at-startup.*lard' "${XDG_CONFIG_HOME:-$HOME/.config}/niri/config.kdl" && echo yes || echo no)"
     printf '  %sstart it now:%s  %s/bin/lard\n' "$C_GREY" "$C_RESET" "$PREFIX"
     printf '  %sor:%s            systemctl --user restart lard.service\n' "$C_GREY" "$C_RESET"
     printf '  %slockscreen:%s    lard lock   (PAM service installed)\n\n' "$C_GREY" "$C_RESET"
