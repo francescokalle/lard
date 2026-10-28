@@ -34,6 +34,7 @@ TERMINAL=""
 TERMINAL_ASKED=0
 DO_EXTRAS=1
 DO_SETUP=1
+REPAIR=0
 BINARY_OVERRIDE=""
 LOG_FILE=""
 UI_TTY=0
@@ -104,6 +105,7 @@ OPTIONS
                               gnome-terminal, xterm, none); if omitted, asks
   --no-extras                 do not install the optional tools (clipboard, brightness)
   --no-system-setup           do not configure portals/audio/services/autostart beyond LARD
+  --repair                    fix an existing installation (keeps the configs)
   --no-enable                 do not enable autostart
   --no-pam / --no-config / --no-greeter / --no-docs / --no-systemd
   --uninstall                 uninstall
@@ -154,6 +156,7 @@ while [ "$#" -gt 0 ]; do
         --terminal=*) TERMINAL="${1#*=}"; TERMINAL_ASKED=1 ;;
         --no-extras) DO_EXTRAS=0 ;;
         --no-system-setup) DO_SETUP=0 ;;
+        --repair) REPAIR=1; FORCE=1 ;;
         --no-enable) DO_ENABLE=0 ;;
         --enable) DO_ENABLE=1 ;;
         -y|--yes) ASSUME_YES=1 ;;
@@ -768,6 +771,13 @@ install_runtime() {
 
 install_keep() { # src dst mode label
     local src="$1" dst="$2" mode="$3" label="$4"
+    if [ -e "$dst" ] && [ "$FORCE" -eq 1 ] && [ "$REPAIR" -eq 1 ]; then
+        case "$label" in
+            config|"user config")
+                ui_skip "$label" "kept during repair: $dst"
+                return 0 ;;
+        esac
+    fi
     if [ -e "$dst" ] && [ "$FORCE" -eq 0 ]; then
         ui_skip "$label" "already present, kept: $dst"
         return 0
@@ -1044,6 +1054,24 @@ do_install() {
     unit_file="$DESTDIR$PREFIX/lib/systemd/user/lard.service"
 
     ui_header
+    if [ "$REPAIR" -eq 0 ] && [ "$DRY_RUN" -eq 0 ] && [ "$USER_MODE" -eq 0 ] \
+        && [ -x "$PREFIX/bin/lard" ] && [ -r /dev/tty ]; then
+        printf '  %s!%s LARD is already installed (%s).\n\n' "$C_GOLD" "$C_RESET" "$PREFIX/bin/lard"
+        printf '     %s1)%s Repair — fix everything, keep my configuration (default)\n' "$C_BOLD" "$C_RESET"
+        printf '     %s2)%s Reinstall — replace the managed files too\n' "$C_BOLD" "$C_RESET"
+        printf '     %s3)%s Cancel\n' "$C_BOLD" "$C_RESET"
+        printf '  %s[1]%s ' "$C_GREY" "$C_RESET"
+        local answer=""
+        read -r answer < /dev/tty || answer=""
+        case "${answer:-1}" in
+            2) REPAIR=0; FORCE=1 ;;
+            3) ui_skip "install" "cancelled"; exit 0 ;;
+            *) REPAIR=1; FORCE=1 ;;
+        esac
+        if [ "$REPAIR" -eq 1 ]; then
+            ui_step "repair" "checking and fixing the existing installation"
+        fi
+    fi
     printf '  %s%s%s\n' "$C_GREY" "prefix $PREFIX · config $SYSCONFDIR${DESTDIR:+ · staging $DESTDIR}" "$C_RESET"
 
     sudo_warmup
