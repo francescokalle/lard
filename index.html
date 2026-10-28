@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="it">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LARD — installa</title>
-<meta name="description" content="LARD — light as rust dust: shell desktop Wayland nativa in Rust per niri. Installazione con un comando.">
+<title>LARD — install</title>
+<meta name="description" content="LARD — light as rust dust: native Wayland desktop shell in Rust for niri. One-command install.">
 <style>
   :root {
     --bg: #0d0b09;
@@ -66,38 +66,38 @@
 <body>
 <div class="wrap">
   <div class="eyebrow">Wayland · Rust · niri</div>
-  <h1>LARD <span>— installa</span></h1>
-  <p class="tagline"><em>light as rust dust</em> — shell desktop nativa in Rust per niri: barra a isole, control center, launcher, lockscreen PAM, greeter greetd.</p>
+  <h1>LARD <span>— install</span></h1>
+  <p class="tagline"><em>light as rust dust</em> — native Wayland desktop shell in Rust for niri: island bar, control center, launcher, PAM lockscreen, greetd greeter.</p>
 
   <div class="card">
-    <h2>Un comando</h2>
+    <h2>One command</h2>
     <div class="cmd">
       <code id="cmd"><span class="dollar">$ </span>curl -fsSL https://lard.francescocallegaro.com/install.sh | bash</code>
-      <button class="copy" data-copy="curl -fsSL https://lard.francescocallegaro.com/install.sh | bash">copia</button>
+      <button class="copy" data-copy="curl -fsSL https://lard.francescocallegaro.com/install.sh | bash">copy</button>
     </div>
-    <p class="alt">Mancano le dipendenze di build (<code>cargo</code>, <code>pkg-config</code>, …)?
-      Aggiungi <code>-s -- --install-deps</code>: installa tutto con il package manager del sistema.</p>
-    <p class="note">Compila in release e chiede <code>sudo</code> solo per i file di sistema. Nessun QML, GTK, Qt, Node o Electron: solo Rust.</p>
+    <p class="alt">Build dependencies (<code>pkg-config</code>, wayland, PAM, fontconfig, vulkan) and the Rust
+      toolchain when missing are installed automatically with the system package manager (pacman, apt, dnf, zypper).</p>
+    <p class="note">Builds in release and asks for <code>sudo</code> only for system files. No QML, GTK, Qt, Node or Electron: only Rust.</p>
   </div>
 
   <div class="grid">
-    <div class="item"><b>/usr/local/bin/lard</b><span>il binario, compilato sul posto</span></div>
-    <div class="item"><b>/etc/lard/config.toml</b><span>config di sistema + copia utente se manca</span></div>
-    <div class="item"><b>/etc/pam.d/lard-greeter</b><span>lockscreen e greeter con PAM nativo</span></div>
-    <div class="item"><b>avvio automatico</b><span><code>lard.service</code> abilitato, o <code>spawn-at-startup</code> in niri (mai due volte)</span></div>
+    <div class="item"><b>/usr/local/bin/lard</b><span>the binary, built on the spot</span></div>
+    <div class="item"><b>/etc/lard/config.toml</b><span>system config + user copy when missing</span></div>
+    <div class="item"><b>/etc/pam.d/lard-greeter</b><span>lockscreen and greeter with native PAM</span></div>
+    <div class="item"><b>autostart</b><span><code>lard.service</code> enabled, or <code>spawn-at-startup</code> in niri (never both)</span></div>
   </div>
 
   <div class="shots">
-    <img src="https://raw.githubusercontent.com/francescokalle/lard/main/preview/bar.png" alt="Barra a tre isole" loading="lazy">
-    <img src="https://raw.githubusercontent.com/francescokalle/lard/main/preview/control-popover.png" alt="Centro di controllo" loading="lazy">
-    <img src="https://raw.githubusercontent.com/francescokalle/lard/main/preview/control-popover-system.png" alt="Monitor di sistema" loading="lazy">
-    <img src="https://raw.githubusercontent.com/francescokalle/lard/main/preview/greeter-wallpaper.png" alt="Schermata di login" loading="lazy">
+    <img src="https://raw.githubusercontent.com/francescokalle/lard/main/preview/bar.png" alt="Bar with three islands" loading="lazy">
+    <img src="https://raw.githubusercontent.com/francescokalle/lard/main/preview/control-popover.png" alt="Control center" loading="lazy">
+    <img src="https://raw.githubusercontent.com/francescokalle/lard/main/preview/control-popover-system.png" alt="System monitor" loading="lazy">
+    <img src="https://raw.githubusercontent.com/francescokalle/lard/main/preview/greeter-wallpaper.png" alt="Login screen" loading="lazy">
   </div>
 
   <footer>
-    Sorgenti e documentazione: <a href="https://github.com/francescokalle/lard">github.com/francescokalle/lard</a> ·
-    opzioni dell'installer: <a href="https://github.com/francescokalle/lard#installazione-in-un-comando">README</a> ·
-    disinstallazione: <code>./install.sh --uninstall</code>
+    Sources and documentation: <a href="https://github.com/francescokalle/lard">github.com/francescokalle/lard</a> ·
+    installer options: <a href="https://github.com/francescokalle/lard#installazione-in-un-comando">README</a> ·
+    uninstall: <code>./install.sh --uninstall</code>
   </footer>
 </div>
 <script>
@@ -106,7 +106,7 @@
       var value = button.getAttribute('data-copy');
       navigator.clipboard.writeText(value).then(function () {
         var old = button.textContent;
-        button.textContent = 'copiato';
+        button.textContent = 'copied';
         setTimeout(function () { button.textContent = old; }, 1400);
       });
     });
