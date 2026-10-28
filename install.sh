@@ -500,6 +500,44 @@ ask_terminal() {
     return 0
 }
 
+# A fresh install often has no system fonts at all: every app shows boxes.
+install_fonts() {
+    detect_family
+    local count=0
+    command -v fc-list >/dev/null 2>&1 && count="$(fc-list 2>/dev/null | wc -l)"
+    if [ "$count" -gt 0 ]; then
+        ui_ok "fonts" "$count fonts available"
+        return 0
+    fi
+    local -a pkgs=()
+    case "$FAMILY" in
+        arch) pkgs=(ttf-dejavu noto-fonts ttf-liberation) ;;
+        debian) pkgs=(fonts-dejavu-core fonts-noto-core fonts-liberation) ;;
+        fedora) pkgs=(dejavu-sans-fonts google-noto-sans-fonts liberation-sans-fonts) ;;
+        suse) pkgs=(dejavu-fonts noto-sans-fonts liberation-fonts) ;;
+        *) pkgs=() ;;
+    esac
+    if [ "${#pkgs[@]}" -eq 0 ]; then
+        ui_warn "no system fonts found: install dejavu/noto by hand"
+        return 0
+    fi
+    if [ "$DRY_RUN" -eq 1 ]; then
+        ui_skip "fonts" "[dry-run] would install: ${pkgs[*]}"
+        return 0
+    fi
+    ui_step "fonts" "installing: ${pkgs[*]}"
+    sudo_warmup
+    case "$(package_manager)" in
+        pacman) as_root pacman -S --needed --noconfirm "${pkgs[@]}" >>"$LOG_FILE" 2>&1 ;;
+        apt-get) as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "${pkgs[@]}" >>"$LOG_FILE" 2>&1 ;;
+        dnf) as_root dnf install -y "${pkgs[@]}" >>"$LOG_FILE" 2>&1 ;;
+        zypper) as_root zypper --non-interactive install "${pkgs[@]}" >>"$LOG_FILE" 2>&1 ;;
+    esac || { ui_warn "could not install the fonts: ${pkgs[*]}"; return 0; }
+    command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1
+    count="$(fc-list 2>/dev/null | wc -l)"
+    ui_ok "fonts" "$count fonts available"
+}
+
 install_runtime() {
     detect_family
     if [ "$DRY_RUN" -eq 0 ] && [ -r /dev/tty ] && [ "$TERMINAL_ASKED" -eq 0 ] \
@@ -804,6 +842,7 @@ do_install() {
 
     sudo_warmup
     install_deps
+    install_fonts
     install_runtime
     ensure_cc
     [ "$SKIP_BUILD" -eq 1 ] || ensure_rust
