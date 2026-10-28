@@ -866,18 +866,18 @@ BOOT_MODE="${LARD_BOOT:-}"
 
 ask_boot() {
     [ -n "$BOOT_MODE" ] && return 0
-    if [ "$DRY_RUN" -eq 1 ] || [ ! -r /dev/tty ]; then BOOT_MODE=tty; return 0; fi
+    if [ "$DRY_RUN" -eq 1 ] || [ ! -r /dev/tty ]; then BOOT_MODE=greeter; return 0; fi
     printf '\n  %s?%s %s\n' "$C_GOLD" "$C_RESET" "How should the session start at boot?"
-    printf '     %s1)%s niri on tty1 (niri-session, no display manager) [default]\n' "$C_BOLD" "$C_RESET"
-    printf '     %s2)%s greetd + LARD greeter (login screen)\n' "$C_BOLD" "$C_RESET"
+    printf '     %s1)%s greetd + LARD greeter (login screen) [default]\n' "$C_BOLD" "$C_RESET"
+    printf '     %s2)%s niri on tty1 (niri-session, no display manager)\n' "$C_BOLD" "$C_RESET"
     printf '     %s3)%s leave the boot setup alone\n' "$C_BOLD" "$C_RESET"
     printf '  %s[1]%s ' "$C_GREY" "$C_RESET"
     local answer=""
     read -r answer < /dev/tty || answer=""
     case "${answer:-1}" in
-        2) BOOT_MODE=greeter ;;
+        2) BOOT_MODE=tty ;;
         3) BOOT_MODE=none ;;
-        *) BOOT_MODE=tty ;;
+        *) BOOT_MODE=greeter ;;
     esac
     return 0
 }
@@ -968,11 +968,19 @@ install_boot() {
     fi
     # Configuration: greetd + the sway kiosk that hosts the greeter.
     local greetd_cfg=/etc/greetd/config.toml
-    if [ -f "$greetd_cfg" ]; then
-        as_root cp -a "$greetd_cfg" "$greetd_cfg.bak-$(date +%Y%m%d%H%M%S)" || true
+    local keep_existing=0
+    if [ -f "$greetd_cfg" ] && as_root systemctl is-active greetd.service >/dev/null 2>&1; then
+        # A working display manager is not something to replace with ours.
+        keep_existing=1
+        ui_ok "boot" "existing /etc/greetd/config.toml kept (greetd is running)"
     fi
-    as_root install -Dm644 "$SCRIPT_DIR/docs/greetd/config.toml" "$greetd_cfg" \
-        || { ui_warn "cannot write $greetd_cfg"; install_tty_autostart; return 0; }
+    if [ "$keep_existing" -eq 0 ]; then
+        if [ -f "$greetd_cfg" ]; then
+            as_root cp -a "$greetd_cfg" "$greetd_cfg.bak-$(date +%Y%m%d%H%M%S)" || true
+        fi
+        as_root install -Dm644 "$SCRIPT_DIR/docs/greetd/config.toml" "$greetd_cfg" \
+            || { ui_warn "cannot write $greetd_cfg"; install_tty_autostart; return 0; }
+    fi
     # Absolute path: the greeter user's PATH does not include /usr/local/bin.
     local kw="$SCRIPT_DIR/docs/greetd/sway-greeter.conf" tmp
     tmp="$(mktemp)"
