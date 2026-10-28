@@ -1145,6 +1145,10 @@ enable_autostart() {
     # graphical-session.target, and the unit is ordered after it. It also
     # restarts the shell if it crashes, which a spawn-at-startup does not.
     if command -v systemctl >/dev/null 2>&1; then
+        if [ "$DRY_RUN" -eq 1 ]; then
+            ui_skip "autostart" "[dry-run] would enable lard.service"
+            return 0
+        fi
         systemctl --user daemon-reload >/dev/null 2>&1 || true
         if systemctl --user enable lard.service >/dev/null 2>&1; then
             ui_ok "autostart" "lard.service (user systemd, after the graphical session)"
