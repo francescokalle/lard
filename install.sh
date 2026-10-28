@@ -866,18 +866,18 @@ BOOT_MODE="${LARD_BOOT:-}"
 
 ask_boot() {
     [ -n "$BOOT_MODE" ] && return 0
-    if [ "$DRY_RUN" -eq 1 ] || [ ! -r /dev/tty ]; then BOOT_MODE=greeter; return 0; fi
+    if [ "$DRY_RUN" -eq 1 ] || [ ! -r /dev/tty ]; then BOOT_MODE=tty; return 0; fi
     printf '\n  %s?%s %s\n' "$C_GOLD" "$C_RESET" "How should the session start at boot?"
-    printf '     %s1)%s greetd + LARD greeter (login screen, starts niri) [default]\n' "$C_BOLD" "$C_RESET"
-    printf '     %s2)%s niri from a TTY with niri-session (no display manager)\n' "$C_BOLD" "$C_RESET"
+    printf '     %s1)%s niri on tty1 (niri-session, no display manager) [default]\n' "$C_BOLD" "$C_RESET"
+    printf '     %s2)%s greetd + LARD greeter (login screen)\n' "$C_BOLD" "$C_RESET"
     printf '     %s3)%s leave the boot setup alone\n' "$C_BOLD" "$C_RESET"
     printf '  %s[1]%s ' "$C_GREY" "$C_RESET"
     local answer=""
     read -r answer < /dev/tty || answer=""
     case "${answer:-1}" in
-        2) BOOT_MODE=tty ;;
+        2) BOOT_MODE=greeter ;;
         3) BOOT_MODE=none ;;
-        *) BOOT_MODE=greeter ;;
+        *) BOOT_MODE=tty ;;
     esac
     return 0
 }
@@ -912,11 +912,12 @@ install_boot() {
     case "$BOOT_MODE" in
         none) ui_skip "boot" "left as is" ; return 0 ;;
         tty)
-            # No display manager: niri-session starts the compositor and LARD's
-            # autostart with it. Nothing to configure at boot, just tell the user.
-            ui_ok "boot" "log in on a TTY and run: niri-session"
+            install_tty_autostart
             return 0 ;;
     esac
+    # greetd: install it, but keep the tty1 fallback as well. If the greeter
+    # cannot start, logging in on tty1 still brings up niri.
+    install_tty_autostart
     # greetd + LARD greeter
     if ! command -v greetd >/dev/null 2>&1 && ! [ -f /usr/lib/systemd/system/greetd.service ]; then
         ui_step "boot" "installing greetd"
@@ -960,6 +961,10 @@ install_boot() {
             install_tty_autostart
             return 0
         fi
+    fi
+    if [ "$DRY_RUN" -eq 0 ]; then
+        ui_warn "if the greeter does not appear at boot: sudo journalctl -u greetd -b --no-pager | tail -30"
+        ui_warn "in any case, a login on tty1 now starts niri"
     fi
     if ! have sway; then
         ui_step "boot" "installing sway (host compositor for the greeter)"
