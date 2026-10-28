@@ -191,12 +191,12 @@ detect_packages() {
         id="$( . /etc/os-release; printf '%s' "${ID:-} ${ID_LIKE:-}" )"
     fi
     case "$id" in
-        *arch*) PACKAGES="base-devel pkgconf wayland pam fontconfig libxkbcommon vulkan-icd-loader" ;;
+        *arch*) PACKAGES="base-devel pkgconf wayland wayland-protocols pam fontconfig libxkbcommon vulkan-icd-loader" ;;
         *debian*|*ubuntu*)
-            PACKAGES="build-essential pkg-config libwayland-dev libpam0g-dev libfontconfig1-dev libxkbcommon-dev libvulkan-dev" ;;
+            PACKAGES="build-essential pkg-config libwayland-dev libwayland-bin wayland-protocols libpam0g-dev libfontconfig1-dev libxkbcommon-dev libvulkan-dev" ;;
         *fedora*|*rhel*)
-            PACKAGES="gcc gcc-c++ make pkgconf-pkg-config wayland-devel pam-devel fontconfig-devel libxkbcommon-devel vulkan-loader-devel" ;;
-        *suse*) PACKAGES="gcc gcc-c++ make pkg-config wayland-devel pam-devel fontconfig-devel libxkbcommon-devel vulkan-devel" ;;
+            PACKAGES="gcc gcc-c++ make pkgconf-pkg-config wayland-devel wayland-protocols-devel pam-devel fontconfig-devel libxkbcommon-devel vulkan-loader-devel" ;;
+        *suse*) PACKAGES="gcc gcc-c++ make pkg-config wayland-devel wayland-protocols-devel pam-devel fontconfig-devel libxkbcommon-devel vulkan-devel" ;;
         *) PACKAGES="" ;;
     esac
 }
@@ -205,9 +205,13 @@ missing_deps() {
     local missing=0
     command -v pkg-config >/dev/null 2>&1 || missing=1
     pkg-config --exists wayland-client 2>/dev/null || missing=1
+    # smithay-client-toolkit's build script generates protocol bindings:
+    # without the scanner the build dies in a "custom build command" error.
+    command -v wayland-scanner >/dev/null 2>&1 || missing=1
     pkg-config --exists libpam 2>/dev/null || missing=1
     pkg-config --exists fontconfig 2>/dev/null || missing=1
     pkg-config --exists xkbcommon 2>/dev/null || missing=1
+    pkg-config --exists wayland-protocols 2>/dev/null || missing=1
     command -v cc >/dev/null 2>&1 || missing=1
     return $missing
 }
@@ -216,6 +220,7 @@ sudo_warmup() {
     # `sudo` prompts on the controlling terminal; a backgrounded job (the
     # spinner) cannot read it, so the prompt would fail silently. Ask once,
     # in the foreground, before any spinner starts.
+    [ "$DRY_RUN" -eq 1 ] && return 0
     if staged || [ "$USER_MODE" -eq 1 ] || [ "$EUID" -eq 0 ]; then return 0; fi
     command -v sudo >/dev/null 2>&1 || return 0
     if ! sudo -n true >/dev/null 2>&1; then
@@ -241,7 +246,7 @@ install_deps() {
     if [ -z "$PACKAGES" ]; then
         # Unknown distribution: try the most common package names instead of
         # silently skipping, so a missing toolchain is caught here.
-        PACKAGES="gcc make pkg-config wayland-devel pam-devel fontconfig-devel libxkbcommon-devel"
+        PACKAGES="gcc make pkg-config wayland-devel wayland-protocols-devel pam-devel fontconfig-devel libxkbcommon-devel"
         ui_warn "unknown distribution: trying generic package names"
     fi
     local pm=""
@@ -275,9 +280,11 @@ missing_report() {
         || command -v clang >/dev/null 2>&1; } \
         || ui_warn "missing: C compiler (gcc or clang)"
     command -v pkg-config >/dev/null 2>&1 || ui_warn "missing: pkg-config"
-    for lib in wayland-client libpam fontconfig xkbcommon; do
+    for lib in wayland-client wayland-protocols libpam fontconfig xkbcommon; do
         pkg-config --exists "$lib" 2>/dev/null || ui_warn "missing: $lib development headers"
     done
+    command -v wayland-scanner >/dev/null 2>&1 \
+        || ui_warn "missing: wayland-scanner (libwayland-bin on Debian, wayland on Arch)"
 }
 
 # rustc links with `cc`; when only `gcc`/`clang` exist we point it there instead
@@ -348,8 +355,16 @@ build_failed() {
     ui_fail "cargo build failed"
     if [ -s "$LOG_FILE" ]; then
         printf '  %s--- errors ---%s\n' "$C_GREY" "$C_RESET" >&2
-        grep -E "error(\[E[0-9]+\])?:|linker|not found|cannot find" "$LOG_FILE" \
+        grep -E "error(\[E[0-9]+\])?:|linker|not found|cannot find|could not find|No package" "$LOG_FILE" \
             | grep -v "due to a previous error" | head -12 >&2 || true
+        # A failed "custom build command" (smithay-client-toolkit, wayland-sys,
+        # xkbcommon…) hides its reason behind a "--- stderr" block.
+        if grep -q "failed to run custom build command" "$LOG_FILE"; then
+            printf '  %s--- build script output ---%s\n' "$C_GREY" "$C_RESET" >&2
+            sed -n '/--- stderr/,/^$/p' "$LOG_FILE" | head -16 >&2 || true
+            grep -q "wayland-scanner" "$LOG_FILE" \
+                && ui_warn "wayland-scanner missing: install libwayland-bin (Debian) or wayland (Arch)"
+        fi
     fi
     if grep -q "linker .cc. not found\|linker .cc. not found" "$LOG_FILE" 2>/dev/null; then
         ui_warn "the C linker is missing: install gcc (pacman -S base-devel | apt install build-essential | dnf install gcc)"
