@@ -1009,6 +1009,11 @@ install_boot() {
             || { ui_warn "cannot write $greetd_cfg"; install_tty_autostart; return 0; }
     fi
     # Absolute path: the greeter user's PATH does not include /usr/local/bin.
+    if [ ! -f "$SCRIPT_DIR/docs/greeter-lard.kdl" ]; then
+        ui_warn "docs/greeter-lard.kdl is missing: refusing to write an empty greeter config"
+        install_tty_autostart
+        return 0
+    fi
     local tmp
     tmp="$(mktemp)"
     sed "s|/usr/local/bin/lard|$PREFIX/bin/lard|" "$SCRIPT_DIR/docs/greeter-lard.kdl" > "$tmp"
