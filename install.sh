@@ -996,6 +996,31 @@ install_boot() {
 }
 
 # ---------------------------------------------------------------------------
+# Default wallpaper (CC0, shipped with the sources)
+
+install_default_wallpaper() {
+    local src="$SCRIPT_DIR/assets/wallpapers/lard-default.png"
+    [ -f "$src" ] || return 0
+    if [ "$DRY_RUN" -eq 1 ]; then
+        ui_skip "wallpaper" "[dry-run] would install the CC0 default wallpaper"
+        return 0
+    fi
+    local dst="$DESTDIR$PREFIX/share/lard/wallpapers/lard-default.png"
+    as_root install -Dm644 "$src" "$dst"
+    [ -n "$DESTDIR" ] && { ui_ok "wallpaper" "$dst"; return 0; }
+    # Point the user configuration at it when no wallpaper was chosen yet.
+    local cfg; cfg="$(user_config_path)"
+    if [ -f "$cfg" ] && grep -Eq '^wallpaper *= *""' "$cfg"; then
+        sed -i "s|^wallpaper *= *\"\"|wallpaper = \"$dst\"|" "$cfg"
+    fi
+    # Apply it now if a wallpaper daemon is already running.
+    if command -v awww >/dev/null 2>&1; then
+        awww img "$dst" --transition-type fade --transition-duration 0.6 >/dev/null 2>&1 || true
+    fi
+    ui_ok "wallpaper" "CC0 default wallpaper: $dst"
+}
+
+# ---------------------------------------------------------------------------
 # Autostart
 
 enable_autostart() {
@@ -1183,6 +1208,7 @@ EOF
         ui_ok "docs" "$doc_dst"
     fi
 
+    install_default_wallpaper
     enable_autostart
     install_niri_binds
     install_boot
