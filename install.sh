@@ -642,6 +642,78 @@ build_binary() {
 }
 
 # ---------------------------------------------------------------------------
+# Boot: how the session comes up after a reboot.
+
+BOOT_MODE="${LARD_BOOT:-}"
+
+ask_boot() {
+    [ -n "$BOOT_MODE" ] && return 0
+    if [ "$DRY_RUN" -eq 1 ] || [ ! -r /dev/tty ]; then BOOT_MODE=greeter; return 0; fi
+    printf '\n  %s?%s %s\n' "$C_GOLD" "$C_RESET" "How should the session start at boot?"
+    printf '     %s1)%s greetd + LARD greeter (login screen, starts niri) [default]\n' "$C_BOLD" "$C_RESET"
+    printf '     %s2)%s niri from a TTY with niri-session (no display manager)\n' "$C_BOLD" "$C_RESET"
+    printf '     %s3)%s leave the boot setup alone\n' "$C_BOLD" "$C_RESET"
+    printf '  %s[1]%s ' "$C_GREY" "$C_RESET"
+    local answer=""
+    read -r answer < /dev/tty || answer=""
+    case "${answer:-1}" in
+        2) BOOT_MODE=tty ;;
+        3) BOOT_MODE=none ;;
+        *) BOOT_MODE=greeter ;;
+    esac
+    return 0
+}
+
+install_boot() {
+    [ "$DRY_RUN" -eq 1 ] && { ask_boot; ui_skip "boot" "[dry-run] mode: $BOOT_MODE"; return 0; }
+    [ "$USER_MODE" -eq 1 ] && { ui_skip "boot" "not handled with --user"; return 0; }
+    ask_boot
+    case "$BOOT_MODE" in
+        none) ui_skip "boot" "left as is" ; return 0 ;;
+        tty)
+            # No display manager: niri-session starts the compositor and LARD's
+            # autostart with it. Nothing to configure at boot, just tell the user.
+            ui_ok "boot" "log in on a TTY and run: niri-session"
+            return 0 ;;
+    esac
+    # greetd + LARD greeter
+    if ! command -v greetd >/dev/null 2>&1 && ! [ -f /usr/lib/systemd/system/greetd.service ]; then
+        ui_step "boot" "installing greetd"
+        sudo_warmup
+        case "$(package_manager)" in
+            pacman) as_root pacman -S --needed --noconfirm greetd >>"$LOG_FILE" 2>&1 ;;
+            apt-get) as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y greetd >>"$LOG_FILE" 2>&1 ;;
+            dnf) as_root dnf install -y greetd >>"$LOG_FILE" 2>&1 ;;
+            zypper) as_root zypper --non-interactive install greetd >>"$LOG_FILE" 2>&1 ;;
+        esac || ui_warn "greetd not installed: install it and enable greetd.service"
+    fi
+    if ! getent passwd greeter >/dev/null 2>&1 && [ "$DRY_RUN" -eq 0 ]; then
+        as_root useradd --system --create-home --shell /usr/sbin/nologin greeter >>"$LOG_FILE" 2>&1 \
+            && ui_ok "boot" "created the 'greeter' user" \
+            || ui_warn "cannot create the 'greeter' user"
+    fi
+    sudo_warmup
+    local greetd_cfg=/etc/greetd/config.toml
+    if [ -f "$greetd_cfg" ]; then
+        as_root cp -a "$greetd_cfg" "$greetd_cfg.bak-$(date +%Y%m%d%H%M%S)" || true
+    fi
+    as_root install -Dm644 "$SCRIPT_DIR/docs/greetd/config.toml" "$greetd_cfg" \
+        || { ui_warn "cannot write $greetd_cfg"; return 0; }
+    # The host compositor config for the greeter (sway kiosk; niri alternative
+    # is installed as /etc/lard/greeter.kdl).
+    as_root install -Dm644 "$SCRIPT_DIR/docs/greetd/sway-greeter.conf" /etc/lard/greeter-sway.conf || true
+    as_root install -Dm644 "$SCRIPT_DIR/docs/greeter-lard.kdl" /etc/lard/greeter.kdl || true
+    if command -v systemctl >/dev/null 2>&1; then
+        as_root systemctl enable greetd.service >>"$LOG_FILE" 2>&1 \
+            && ui_ok "boot" "greetd enabled (LARD greeter -> niri session)" \
+            || ui_warn "cannot enable greetd.service"
+    fi
+    if ! command -v sway >/dev/null 2>&1; then
+        ui_warn "the greeter needs a host compositor: install sway (or use /etc/lard/greeter.kdl with niri)"
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Autostart
 
 enable_autostart() {
@@ -650,17 +722,26 @@ enable_autostart() {
         return 0
     fi
     local niri_cfg="${XDG_CONFIG_HOME:-$HOME/.config}/niri/config.kdl"
-    if command -v systemctl >/dev/null 2>&1 \
-        && [ "$(systemctl --user is-enabled lard.service 2>/dev/null || true)" = "enabled" ]; then
-        ui_ok "autostart" "lard.service (user systemd) already enabled"
-        return 0
-    fi
     if [ -f "$niri_cfg" ] && grep -Eq '^[[:space:]]*spawn-at-startup[^/]*lard' "$niri_cfg"; then
         ui_ok "autostart" "already configured in $niri_cfg"
         return 0
     fi
-    if [ "$DRY_RUN" -eq 1 ]; then
-        ui_skip "autostart" "[dry-run] would enable lard.service"
+    # niri's spawn-at-startup is the reliable path: it inherits
+    # WAYLAND_DISPLAY and NIRI_SOCKET from the compositor.
+    if [ -f "$niri_cfg" ]; then
+        if [ "$DRY_RUN" -eq 1 ]; then
+            ui_skip "autostart" "[dry-run] would add spawn-at-startup \"$PREFIX/bin/lard\""
+            return 0
+        fi
+        cp -a "$niri_cfg" "$niri_cfg.bak-$(date +%Y%m%d%H%M%S)"
+        printf '\n// >>> lard (autostart, managed by install.sh)\nspawn-at-startup "%s/bin/lard"\n// <<< lard\n' \
+            "$PREFIX" >> "$niri_cfg"
+        # One mechanism only: a systemd unit started before niri would exit 78.
+        if command -v systemctl >/dev/null 2>&1 \
+            && [ "$(systemctl --user is-enabled lard.service 2>/dev/null || true)" = "enabled" ]; then
+            systemctl --user disable lard.service >/dev/null 2>&1 || true
+        fi
+        ui_ok "autostart" "spawn-at-startup added to $niri_cfg"
         return 0
     fi
     if command -v systemctl >/dev/null 2>&1 \
@@ -669,14 +750,7 @@ enable_autostart() {
         ui_ok "autostart" "lard.service (user systemd) enabled"
         return 0
     fi
-    if [ -f "$niri_cfg" ]; then
-        cp -a "$niri_cfg" "$niri_cfg.bak-$(date +%Y%m%d%H%M%S)"
-        printf '\n// >>> lard (autostart, managed by install.sh)\nspawn-at-startup "%s/bin/lard"\n// <<< lard\n' \
-            "$PREFIX" >> "$niri_cfg"
-        ui_ok "autostart" "spawn-at-startup added to $niri_cfg"
-        return 0
-    fi
-    ui_warn "autostart not configured: enable lard.service or add spawn-at-startup \"$PREFIX/bin/lard\""
+    ui_warn "autostart not configured: add spawn-at-startup \"$PREFIX/bin/lard\" to your niri config"
 }
 
 # ---------------------------------------------------------------------------
@@ -809,6 +883,7 @@ EOF
     fi
 
     enable_autostart
+    install_boot
 
     if [ "$DRY_RUN" -eq 0 ] && [ -x "$PREFIX/bin/lard" ]; then
         if "$PREFIX/bin/lard" version >/dev/null 2>&1; then
