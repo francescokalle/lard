@@ -933,66 +933,69 @@ install_boot() {
     [ "$USER_MODE" -eq 1 ] && { ui_skip "boot" "not handled with --user"; return 0; }
     ask_boot
     case "$BOOT_MODE" in
-        none) ui_skip "boot" "left as is" ; return 0 ;;
-        tty)
-            install_tty_autostart
-            return 0 ;;
+        none) ui_skip "boot" "left as is"; return 0 ;;
+        tty) install_tty_autostart; return 0 ;;
     esac
-    # greetd: install it, but keep the tty1 fallback as well. If the greeter
-    # cannot start, logging in on tty1 still brings up niri.
-    install_tty_autostart
-    # greetd + LARD greeter
-    if ! command -v greetd >/dev/null 2>&1 && ! [ -f /usr/lib/systemd/system/greetd.service ]; then
+
+    # ---- greetd + LARD greeter ------------------------------------------------
+    if ! command -v greetd >/dev/null 2>&1 && ! [ -f /usr/lib/systemd/system/greetd.service ] \
+        && ! [ -f /usr/bin/greetd ] && ! [ -f /usr/sbin/greetd ]; then
         ui_step "boot" "installing greetd"
         sudo_warmup
-        case "$(package_manager)" in
-            pacman) as_root pacman -S --needed --noconfirm greetd >>"$LOG_FILE" 2>&1 ;;
-            apt-get) as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y greetd >>"$LOG_FILE" 2>&1 ;;
-            dnf) as_root dnf install -y greetd >>"$LOG_FILE" 2>&1 ;;
-            zypper) as_root zypper --non-interactive install greetd >>"$LOG_FILE" 2>&1 ;;
-        esac || ui_warn "greetd not installed: install it and enable greetd.service"
+        pm_install greetd || ui_warn "cannot install greetd"
     fi
-    if ! getent passwd greeter >/dev/null 2>&1 && [ "$DRY_RUN" -eq 0 ]; then
+    if ! command -v greetd >/dev/null 2>&1 && [ ! -f /usr/bin/greetd ] && [ ! -f /usr/sbin/greetd ]; then
+        ui_warn "greetd is not available: falling back to autologin on tty1"
+        install_tty_autostart
+        return 0
+    fi
+    # The host compositor must exist *before* greetd starts: otherwise the
+    # session command fails instantly and the service never becomes active.
+    if ! have sway; then
+        ui_step "boot" "installing sway (host compositor for the greeter)"
+        pm_install sway || ui_warn "sway missing: the greeter session cannot start"
+    fi
+    if ! getent passwd greeter >/dev/null 2>&1; then
         as_root useradd --system --create-home --shell /usr/sbin/nologin greeter >>"$LOG_FILE" 2>&1 \
             && ui_ok "boot" "created the 'greeter' user" \
             || ui_warn "cannot create the 'greeter' user"
     fi
     sudo_warmup
-    local greetd_cfg=/etc/greetd/config.toml
-    if ! have greetd && [ ! -f /usr/bin/greetd ] && [ ! -f /usr/sbin/greetd ]; then
-        ui_warn "greetd is not installed: falling back to niri-session on tty1"
-        install_tty_autostart
-        return 0
+    # A stale tty1 autologin would fight greetd for the VT.
+    if [ -f /etc/systemd/system/getty@tty1.service.d/autologin.conf ]; then
+        as_root rm -f /etc/systemd/system/getty@tty1.service.d/autologin.conf
+        ui_ok "boot" "removed the tty1 autologin override (greetd owns the VT)"
     fi
+    # Configuration: greetd + the sway kiosk that hosts the greeter.
+    local greetd_cfg=/etc/greetd/config.toml
     if [ -f "$greetd_cfg" ]; then
         as_root cp -a "$greetd_cfg" "$greetd_cfg.bak-$(date +%Y%m%d%H%M%S)" || true
     fi
     as_root install -Dm644 "$SCRIPT_DIR/docs/greetd/config.toml" "$greetd_cfg" \
-        || { ui_warn "cannot write $greetd_cfg"; return 0; }
-    # The host compositor config for the greeter (sway kiosk; niri alternative
-    # is installed as /etc/lard/greeter.kdl).
-    as_root install -Dm644 "$SCRIPT_DIR/docs/greetd/sway-greeter.conf" /etc/lard/greeter-sway.conf || true
+        || { ui_warn "cannot write $greetd_cfg"; install_tty_autostart; return 0; }
+    # Absolute path: the greeter user's PATH does not include /usr/local/bin.
+    local kw="$SCRIPT_DIR/docs/greetd/sway-greeter.conf" tmp
+    tmp="$(mktemp)"
+    sed "s|\"lard greeter|\"$PREFIX/bin/lard greeter|" "$kw" > "$tmp"
+    as_root install -Dm644 "$tmp" /etc/lard/greeter-sway.conf
+    rm -f "$tmp"
     as_root install -Dm644 "$SCRIPT_DIR/docs/greeter-lard.kdl" /etc/lard/greeter.kdl || true
     if command -v systemctl >/dev/null 2>&1; then
-        as_root systemctl enable greetd.service >>"$LOG_FILE" 2>&1 \
-            && ui_ok "boot" "greetd enabled (LARD greeter -> niri session)" \
-            || ui_warn "cannot enable greetd.service"
-    fi
-    if [ "$DRY_RUN" -eq 0 ] && command -v systemctl >/dev/null 2>&1; then
-        if ! as_root systemctl is-active greetd.service >/dev/null 2>&1; then
-            ui_warn "greetd did not start: falling back to niri-session on tty1"
-            install_tty_autostart
+        as_root systemctl daemon-reload >/dev/null 2>&1 || true
+        as_root systemctl enable greetd.service >>"$LOG_FILE" 2>&1 || true
+        as_root systemctl restart greetd.service >>"$LOG_FILE" 2>&1 || true
+        sleep 3
+        if as_root systemctl is-active greetd.service >/dev/null 2>&1; then
+            ui_ok "boot" "greetd running (LARD greeter -> niri session)"
             return 0
         fi
+        ui_warn "greetd did not stay up: here is why"
+        as_root journalctl -u greetd.service -b --no-pager 2>/dev/null | tail -20 >&2 || true
+        ui_warn "falling back to autologin on tty1 (a working session beats a black screen)"
+        install_tty_autostart
+        return 0
     fi
-    if [ "$DRY_RUN" -eq 0 ]; then
-        ui_warn "if the greeter does not appear at boot: sudo journalctl -u greetd -b --no-pager | tail -30"
-        ui_warn "in any case, a login on tty1 now starts niri"
-    fi
-    if ! have sway; then
-        ui_step "boot" "installing sway (host compositor for the greeter)"
-        pm_install sway || ui_warn "sway not installed: the greeter cannot start (or use /etc/lard/greeter.kdl with niri)"
-    fi
+    ui_warn "systemctl not available: greetd was configured but not enabled"
 }
 
 # ---------------------------------------------------------------------------
