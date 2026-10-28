@@ -24,6 +24,8 @@ pub enum IpcCommand {
     Wifi,
     Bluetooth,
     PowerMenu,
+    /// Switch the appearance (system / light / dark).
+    ThemeMode(lard_core::theme::ThemeMode),
     /// Battery statistics panel (right island, battery item).
     Battery,
     /// Mini task manager (right island, CPU/RAM items).
@@ -54,6 +56,9 @@ impl IpcCommand {
             "control-center" | "toggle-control-center" => Some(Self::ControlCenter),
             "controls" | "control-center-popover" => Some(Self::Controls),
             "notifications" | "notification-center" => Some(Self::Notifications),
+            "theme" | "theme-system" => Some(Self::ThemeMode(lard_core::theme::ThemeMode::System)),
+            "theme-light" | "light" => Some(Self::ThemeMode(lard_core::theme::ThemeMode::Light)),
+            "theme-dark" | "dark" => Some(Self::ThemeMode(lard_core::theme::ThemeMode::Dark)),
             "battery" | "battery-panel" => Some(Self::Battery),
             "system" | "task-manager" => Some(Self::System),
             "wifi" | "wifi-menu" => Some(Self::Wifi),

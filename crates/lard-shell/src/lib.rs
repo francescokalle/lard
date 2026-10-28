@@ -477,6 +477,13 @@ impl Shell {
                 }
             }
             ServiceEvent::SystemStats(stats) => self.system = stats,
+            ServiceEvent::ColorScheme(dark) => {
+                // Follow the desktop while the mode is `system`.
+                if self.config.theme.mode == lard_core::theme::ThemeMode::System {
+                    self.config.apply_appearance(dark);
+                    self.dirty = true;
+                }
+            }
             ServiceEvent::Notification(notification) => {
                 if self.dnd || !self.config.notifications.enabled {
                     self.actions.push(ShellAction::CloseNotification {
@@ -875,6 +882,29 @@ impl Shell {
 
     pub fn toasts_entrance(&mut self) {
         self.toasts.start_entrance();
+    }
+
+    /// Switch the appearance and publish it, so browsers and GTK apps follow.
+    pub fn set_theme_mode(&mut self, mode: lard_core::theme::ThemeMode) {
+        self.config.theme.flatten();
+        self.config.theme.mode = mode;
+        self.config.apply_appearance(lard_services::appearance::prefers_dark());
+        let dark = self.config.is_dark();
+        let published = lard_services::appearance::publish(dark);
+        if !published {
+            tracing::warn!("could not publish the color scheme (no gsettings/portal?)");
+        }
+        if let Err(error) = self.config.save() {
+            tracing::warn!(%error, "cannot save the appearance");
+        }
+        self.invalidate_views();
+        self.dirty = true;
+    }
+
+    /// Apply the current mode to a freshly loaded configuration.
+    pub fn sync_appearance(&mut self) {
+        self.config
+            .apply_appearance(lard_services::appearance::prefers_dark());
     }
 
     pub fn close_launcher(&mut self) {
@@ -1881,7 +1911,11 @@ impl Shell {
             SettingsAction::Close | SettingsAction::Cancel => self.close_settings(false),
             SettingsAction::Save => self.close_settings(true),
             SettingsAction::Tab(tab) => self.settings.select_tab(tab),
+            SettingsAction::ThemeMode(mode) => self.set_theme_mode(mode),
             SettingsAction::Theme(index) => {
+                // Palettes write the canonical (dark) palette, never the
+                // derived light one.
+                self.config.theme.flatten();
                 settings::apply_palette(&mut self.config.theme, index);
                 settings::apply_palette_to_wallpaper(&mut self.config.greeter.wallpaper, index);
                 self.invalidate_views();

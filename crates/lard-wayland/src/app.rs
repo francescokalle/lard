@@ -247,7 +247,9 @@ fn discover_wayland_display() -> Option<String> {
 }
 
 pub fn run(mode: Mode) -> Result<()> {
-    let config = Config::load_default()?;
+    let mut config = Config::load_default()?;
+    // Follow the desktop color scheme unless the user pinned light/dark.
+    config.apply_appearance(lard_services::appearance::prefers_dark());
     let conn = match connect_wayland() {
         Ok(conn) => conn,
         Err(error) => {
@@ -488,6 +490,11 @@ impl App {
                     shell.open_bluetooth_panel();
                 }
             }
+            IpcCommand::ThemeMode(mode) => {
+                if let Some(shell) = &mut self.shell {
+                    shell.set_theme_mode(mode);
+                }
+            }
             IpcCommand::Battery => {
                 if let Some(shell) = &mut self.shell {
                     shell.open_battery_panel();
@@ -556,13 +563,14 @@ impl App {
         if self.shell.is_none() {
             return;
         }
-        let config = match Config::load_default() {
+        let mut config = match Config::load_default() {
             Ok(config) => config,
             Err(error) => {
                 tracing::error!(%error, "config reload failed; keeping the old configuration");
                 return;
             }
         };
+        config.apply_appearance(lard_services::appearance::prefers_dark());
         let renderer = match Renderer::new(&self.gpu, &config.font) {
             Ok(renderer) => renderer,
             Err(error) => {

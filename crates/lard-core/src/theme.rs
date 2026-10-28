@@ -64,6 +64,17 @@ impl Default for Radius {
     }
 }
 
+/// Which palette the shell shows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemeMode {
+    /// Follow the desktop preference (`org.freedesktop.appearance color-scheme`).
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Theme {
@@ -102,6 +113,11 @@ pub struct Theme {
     pub follow_niri: bool,
     pub shadow_blur: f32,
     pub shadow_offset_y: f32,
+    /// Light, dark, or follow the desktop preference.
+    pub mode: ThemeMode,
+    /// The dark palette this theme was derived from (runtime only, never saved).
+    #[serde(skip)]
+    base: Option<Box<Theme>>,
 }
 
 impl Default for Theme {
@@ -132,7 +148,77 @@ impl Default for Theme {
             follow_niri: true,
             shadow_blur: 28.0,
             shadow_offset_y: 10.0,
+            mode: ThemeMode::System,
+            base: None,
         }
+    }
+}
+
+impl Theme {
+    /// Whether the palette currently on screen is dark.
+    #[must_use]
+    pub fn is_dark(&self) -> bool {
+        self.base.is_none()
+    }
+
+    /// Switch between the dark palette (the one in `[theme]`) and its light
+    /// variant, keeping the mode.
+    pub fn set_dark(&mut self, dark: bool) {
+        if dark {
+            if let Some(base) = self.base.take() {
+                *self = *base;
+            }
+        } else if self.base.is_none() {
+            let base = self.clone();
+            let mut light = base.light_variant();
+            light.base = Some(Box::new(base));
+            *self = light;
+        }
+    }
+
+    /// Restore the dark palette before writing the configuration: the file
+    /// always stores the canonical palette plus the mode.
+    pub fn flatten(&mut self) {
+        if let Some(base) = self.base.take() {
+            *self = *base;
+        }
+    }
+
+    /// A light palette derived from this one: the accent keeps its hue (darkened
+    /// enough to stay readable on white) and the neutrals are warm off-whites,
+    /// so switching does not feel like a different product.
+    #[must_use]
+    pub fn light_variant(&self) -> Self {
+        let mut light = self.clone();
+        light.background = Color::from_hex("#F3EEE4EE").expect("valid");
+        light.surface = Color::from_hex("#FFFCF7F5").expect("valid");
+        light.surface_hover = Color::from_hex("#EDE4D5FF").expect("valid");
+        light.surface_active = Color::from_hex("#DFD3BFFF").expect("valid");
+        light.text = Color::from_hex("#1C1710FF").expect("valid");
+        light.text_muted = Color::from_hex("#5C5346FF").expect("valid");
+        // Accent: darken while keeping the hue, then use light text on it.
+        let (r, g, b) = (self.accent.r, self.accent.g, self.accent.b);
+        let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        let factor = if luminance > 0.55 { 0.62 } else { 0.92 };
+        light.accent = Color::rgba(
+            (r * factor).clamp(0.0, 1.0),
+            (g * factor).clamp(0.0, 1.0),
+            (b * factor).clamp(0.0, 1.0),
+            self.accent.a,
+        );
+        light.accent_text = Color::from_hex("#FFF9F0FF").expect("valid");
+        light.danger = Color::from_hex("#B3261EFF").expect("valid");
+        light.warning = Color::from_hex("#8A5B00FF").expect("valid");
+        light.success = Color::from_hex("#1E7A45FF").expect("valid");
+        light.border = Color::from_hex("#1F150A26").expect("valid");
+        light.shadow = Color::from_hex("#00000026").expect("valid");
+        // Light glass needs to be a bit more opaque: over a dark wallpaper the
+        // same alpha reads as mud.
+        light.overlay_opacity = (self.overlay_opacity + 0.16).min(0.92);
+        light.frost = (self.frost + 0.08).min(0.95);
+        light.mode = self.mode;
+        light.base = None;
+        light
     }
 }
 

@@ -5,6 +5,7 @@
 //! where the system exposes an event source, with conservative polling as a
 //! fallback (battery: 30 s, network: 15 s, bluetooth: 30 s).
 
+pub mod appearance;
 pub mod audio;
 pub mod battery;
 pub mod bluetooth;
@@ -54,6 +55,8 @@ pub enum ServiceEvent {
         message: Option<String>,
     },
     SystemStats(system::SystemStats),
+    /// The desktop color scheme changed (`true` = dark).
+    ColorScheme(bool),
     Notification(Notification),
     NotificationClosed {
         id: u32,
@@ -79,6 +82,7 @@ impl Services {
         battery::spawn(ui.clone());
         brightness::spawn(ui.clone());
         system::spawn(ui.clone());
+        appearance::spawn(ui.clone());
         network::spawn(ui.clone());
         bluetooth::spawn(ui.clone());
         let notifications = if notifications_enabled {

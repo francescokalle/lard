@@ -59,8 +59,12 @@ impl Config {
     }
 
     pub fn save_to(&self, path: &Path) -> Result<(), crate::ConfigError> {
+        // The file always stores the dark palette plus the mode: never the
+        // derived light one.
+        let mut snapshot = self.clone();
+        snapshot.theme.flatten();
         let text =
-            toml::to_string_pretty(self).map_err(|source| crate::ConfigError::Serialize {
+            toml::to_string_pretty(&snapshot).map_err(|source| crate::ConfigError::Serialize {
                 path: path.to_path_buf(),
                 source,
             })?;
@@ -139,6 +143,24 @@ impl Config {
             }
         }
         newest.map(|(_, wallpaper)| wallpaper)
+    }
+
+    /// Apply the appearance mode using the desktop preference for `system`.
+    ///
+    /// Safe to call on every change: it only swaps the palette when needed.
+    pub fn apply_appearance(&mut self, prefers_dark: bool) {
+        let dark = match self.theme.mode {
+            crate::theme::ThemeMode::Dark => true,
+            crate::theme::ThemeMode::Light => false,
+            crate::theme::ThemeMode::System => prefers_dark,
+        };
+        self.theme.set_dark(dark);
+    }
+
+    /// Whether the palette currently on screen is dark.
+    #[must_use]
+    pub fn is_dark(&self) -> bool {
+        self.theme.is_dark()
     }
 
     /// The config file that would be loaded. Useful for the file watcher and

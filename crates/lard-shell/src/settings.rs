@@ -81,6 +81,7 @@ pub enum SettingsAction {
     Cancel,
     Tab(SettingsTab),
     Theme(usize),
+    ThemeMode(lard_core::theme::ThemeMode),
     Toggle(Toggle),
     Step(Step, i32),
     NextNotificationPosition,
@@ -1109,6 +1110,76 @@ impl SettingsView {
     ) {
         let theme = &config.theme;
         let fonts = &config.font;
+        // Light / dark / follow the desktop.
+        scene.text(
+            "Theme",
+            Point::new(content.x, y),
+            TextStyle {
+                size: fonts.size_small,
+                weight: fonts.weight_medium,
+                ..Default::default()
+            },
+            theme.text_muted.scale_alpha(0.8 * p),
+        );
+        let gap = 10.0;
+        let chip_w = (content.w - gap * 2.0) / 3.0;
+        for (index, (mode, label)) in [
+            (lard_core::theme::ThemeMode::System, "System"),
+            (lard_core::theme::ThemeMode::Light, "Light"),
+            (lard_core::theme::ThemeMode::Dark, "Dark"),
+        ]
+        .iter()
+        .enumerate()
+        {
+            let rect = Rect::new(
+                content.x + index as f32 * (chip_w + gap),
+                y + 24.0,
+                chip_w,
+                34.0,
+            );
+            let selected = config.theme.mode == *mode;
+            let hovered = self.cursor.is_some_and(|cursor| rect.contains(cursor));
+            scene.rect(
+                rect,
+                if selected {
+                    theme.accent.with_alpha(0.18 * p)
+                } else if hovered {
+                    theme.surface_hover.scale_alpha(0.85 * p)
+                } else {
+                    theme.background.scale_alpha(0.55 * p)
+                },
+                theme.radius.control(),
+            );
+            if selected {
+                scene.bordered(
+                    rect,
+                    Color::TRANSPARENT,
+                    theme.radius.control(),
+                    1.0,
+                    theme.accent.scale_alpha(0.6 * p),
+                );
+            }
+            scene.text_center_y(
+                *label,
+                rect.x,
+                rect.center().y,
+                TextStyle {
+                    size: fonts.size_small,
+                    weight: fonts.weight_medium,
+                    align: TextAlign::Center,
+                    max_width: Some(rect.w),
+                    ..Default::default()
+                },
+                if selected {
+                    theme.accent.scale_alpha(p)
+                } else {
+                    theme.text.scale_alpha(0.8 * p)
+                },
+            );
+            self.hits
+                .push((rect, SettingsAction::ThemeMode(*mode)));
+        }
+        let y = y + 24.0 + 34.0 + 18.0;
         scene.text(
             "Palette",
             Point::new(content.x, y),

@@ -84,7 +84,7 @@ USAGE:
 IPC COMMANDS:
   launcher, control-center, controls, notifications, wifi, bluetooth, battery, system,
   power-menu, settings, wallpapers, volume-up, volume-down, toggle-mute,
-  brightness-up, brightness-down, reload, lock, quit
+  brightness-up, brightness-down, theme-system, theme-light, theme-dark,\n  reload, lock, quit
 "#,
         env!("CARGO_PKG_VERSION")
     );
