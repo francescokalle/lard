@@ -205,37 +205,6 @@ version_ge() { # version_ge HAVE NEED
     [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]
 }
 
-# smithay-client-toolkit 0.21 generates bindings from wayland-client and
-# wayland-protocols at build time: too old a tree fails inside its build script.
-protocol_requirements() {
-    local client protocols scanner datadir bad=0
-    client="$(pkg-config --modversion wayland-client 2>/dev/null || echo 0)"
-    protocols="$(pkg-config --modversion wayland-protocols 2>/dev/null || echo 0)"
-    scanner="$(wayland-scanner --version 2>/dev/null | awk '{print $NF}' || true)"; scanner="${scanner:-0}"
-    datadir="$(pkg-config --variable=pkgdatadir wayland-protocols 2>/dev/null || true)"
-    version_ge "$client" "1.20" || { ui_warn "wayland-client $client is too old (need >= 1.20)"; bad=1; }
-    version_ge "$scanner" "1.20" || { ui_warn "wayland-scanner $scanner is too old (need >= 1.20)"; bad=1; }
-    if ! version_ge "$protocols" "1.31"; then
-        ui_warn "wayland-protocols $protocols is too old: smithay-client-toolkit 0.21 needs >= 1.31"
-        bad=1
-    fi
-    if [ -n "$datadir" ]; then
-        for xml in stable/ext-session-lock/ext-session-lock-v1.xml \
-                   staging/ext-session-lock/ext-session-lock-v1.xml \
-                   stable/viewporter/viewporter.xml; do
-            [ -f "$datadir/$xml" ] || { ui_warn "missing protocol xml: $datadir/$xml"; bad=1; }
-        done
-    fi
-    if [ "$bad" -eq 1 ]; then
-        ui_warn "how to fix:"
-        ui_warn "  Arch:    pacman -S --needed wayland wayland-protocols"
-        ui_warn "  Debian:  apt install wayland-protocols libwayland-bin (bookworm+)"
-        ui_warn "  Fedora:  dnf install wayland-devel wayland-protocols-devel"
-        ui_warn "  Ubuntu 22.04/Mint ship wayland-protocols 1.25 (too old): upgrade or build 1.31+ from source"
-    fi
-    return $bad
-}
-
 build_diagnostics() {
     {
         echo "--- diagnostics ---"
@@ -245,9 +214,9 @@ build_diagnostics() {
         echo "cargo:   $(cargo -V 2>/dev/null || echo missing)"
         echo "cc:      $(cc --version 2>/dev/null | head -1 || echo missing)"
         echo "wayland-client:    $(pkg-config --modversion wayland-client 2>/dev/null || echo missing)"
-        echo "wayland-protocols: $(pkg-config --modversion wayland-protocols 2>/dev/null || echo missing)"
-        echo "wayland-scanner:   $(wayland-scanner --version 2>/dev/null || echo missing)"
-        echo "xkbcommon: $(pkg-config --modversion xkbcommon 2>/dev/null || echo missing)"
+        echo "xkbcommon:         $(pkg-config --modversion xkbcommon 2>/dev/null || echo missing)"
+        echo "libpam:            $(pkg-config --modversion libpam 2>/dev/null || echo missing)"
+        echo "fontconfig:        $(pkg-config --modversion fontconfig 2>/dev/null || echo missing)"
     } | tee -a "$LOG_FILE" >&2
 }
 
@@ -329,8 +298,6 @@ missing_components() {
     command -v make >/dev/null 2>&1 || echo make
     command -v pkg-config >/dev/null 2>&1 || echo pkgconf
     pkg-config --exists wayland-client 2>/dev/null || echo wayland
-    command -v wayland-scanner >/dev/null 2>&1 || echo scanner
-    pkg-config --exists wayland-protocols 2>/dev/null || echo protocols
     pkg-config --exists libpam 2>/dev/null || echo pam
     pkg-config --exists fontconfig 2>/dev/null || echo fontconfig
     pkg-config --exists xkbcommon 2>/dev/null || echo xkbcommon
@@ -627,7 +594,6 @@ do_install() {
 
     sudo_warmup
     install_deps
-    protocol_requirements || ui_warn "the wayland stack is older than smithay-client-toolkit 0.21 expects"
     ensure_cc
     [ "$SKIP_BUILD" -eq 1 ] || ensure_rust
 
