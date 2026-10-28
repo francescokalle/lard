@@ -17,7 +17,18 @@ barra a 3 isole ─ dock ─ launcher fuzzy ─ OSD ─ notifiche ─ control ce
 ## Installazione in un comando
 
 ```bash
-./install.sh
+curl -fsSL https://install-lard.francescocallegaro.com | bash
+```
+
+Lo script scarica il repository, compila in release e **abilita l'avvio
+automatico** (`lard.service` se systemd utente è disponibile, altrimenti
+`spawn-at-startup` in niri — mai entrambi). Serve `git`; se mancano le
+dipendenze di build aggiungi `-s -- --install-deps`.
+
+Dal checkout locale, l'equivalente è:
+
+```bash
+./install.sh            # compila, installa, abilita l'avvio automatico
 ```
 
 Lo script compila in release e installa:

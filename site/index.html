@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LARD — installa</title>
+<meta name="description" content="LARD — light as rust dust: shell desktop Wayland nativa in Rust per niri. Installazione con un comando.">
+<style>
+  :root {
+    --bg: #0d0b09;
+    --panel: #17130b;
+    --panel-2: #1e1912;
+    --line: #2c251b;
+    --text: #f2ede4;
+    --muted: #a49a8b;
+    --accent: #ebc16c;
+    --accent-dim: #8c6a2a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font: 16px/1.6 ui-sans-serif, system-ui, "Inter", "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 72px 24px 96px; }
+  .eyebrow { color: var(--muted); font-size: 13px; letter-spacing: .16em; text-transform: uppercase; }
+  h1 { font-size: clamp(42px, 7vw, 72px); line-height: 1.02; margin: 10px 0 6px; letter-spacing: -.02em; }
+  h1 span { color: var(--accent); }
+  .tagline { color: var(--muted); font-size: 19px; margin: 0 0 36px; }
+  .card {
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 22px;
+    box-shadow: 0 24px 60px -30px rgba(0,0,0,.9);
+  }
+  .card h2 { font-size: 14px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; }
+  .cmd {
+    display: flex; gap: 10px; align-items: stretch;
+    background: #0b0907; border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
+    font-size: 14px; overflow-x: auto;
+  }
+  .cmd code { white-space: pre; color: var(--text); }
+  .cmd .dollar { color: var(--accent-dim); user-select: none; }
+  button.copy {
+    margin-left: auto; border: 1px solid var(--line); background: #16120d; color: var(--muted);
+    border-radius: 9px; padding: 6px 12px; font: inherit; font-size: 12px; cursor: pointer;
+    white-space: nowrap;
+  }
+  button.copy:hover { color: var(--text); border-color: var(--accent-dim); }
+  .alt { margin-top: 14px; color: var(--muted); font-size: 14px; }
+  .alt code { color: var(--text); background: #0b0907; border: 1px solid var(--line); border-radius: 8px; padding: 2px 7px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 26px; }
+  .item { border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; background: #120f0b; }
+  .item b { display: block; margin-bottom: 4px; }
+  .item span { color: var(--muted); font-size: 14px; }
+  .shots { display: grid; grid-template-columns: 1fr; gap: 14px; margin-top: 28px; }
+  .shots img { width: 100%; border-radius: 14px; border: 1px solid var(--line); display: block; }
+  footer { margin-top: 56px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); padding-top: 20px; }
+  .note { color: var(--muted); font-size: 14px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">Wayland · Rust · niri</div>
+  <h1>LARD <span>— installa</span></h1>
+  <p class="tagline"><em>light as rust dust</em> — shell desktop nativa in Rust per niri: barra a isole, control center, launcher, lockscreen PAM, greeter greetd.</p>
+
+  <div class="card">
+    <h2>Un comando</h2>
+    <div class="cmd">
+      <code id="cmd"><span class="dollar">$ </span>curl -fsSL https://install-lard.francescocallegaro.com | bash</code>
+      <button class="copy" data-copy="curl -fsSL https://install-lard.francescocallegaro.com | bash">copia</button>
+    </div>
+    <p class="alt">Mancano le dipendenze di build (<code>cargo</code>, <code>pkg-config</code>, …)?
+      Aggiungi <code>-s -- --install-deps</code>: installa tutto con il package manager del sistema.</p>
+    <p class="note">Compila in release e chiede <code>sudo</code> solo per i file di sistema. Nessun QML, GTK, Qt, Node o Electron: solo Rust.</p>
+  </div>
+
+  <div class="grid">
+    <div class="item"><b>/usr/local/bin/lard</b><span>il binario, compilato sul posto</span></div>
+    <div class="item"><b>/etc/lard/config.toml</b><span>config di sistema + copia utente se manca</span></div>
+    <div class="item"><b>/etc/pam.d/lard-greeter</b><span>lockscreen e greeter con PAM nativo</span></div>
+    <div class="item"><b>avvio automatico</b><span><code>lard.service</code> abilitato, o <code>spawn-at-startup</code> in niri (mai due volte)</span></div>
+  </div>
+
+  <div class="shots">
+    <img src="https://raw.githubusercontent.com/francescokalle/lard/main/preview/bar.png" alt="Barra a tre isole" loading="lazy">
+    <img src="https://raw.githubusercontent.com/francescokalle/lard/main/preview/control-popover.png" alt="Centro di controllo" loading="lazy">
+    <img src="https://raw.githubusercontent.com/francescokalle/lard/main/preview/control-popover-system.png" alt="Monitor di sistema" loading="lazy">
+    <img src="https://raw.githubusercontent.com/francescokalle/lard/main/preview/greeter-wallpaper.png" alt="Schermata di login" loading="lazy">
+  </div>
+
+  <footer>
+    Sorgenti e documentazione: <a href="https://github.com/francescokalle/lard">github.com/francescokalle/lard</a> ·
+    opzioni dell'installer: <a href="https://github.com/francescokalle/lard#installazione-in-un-comando">README</a> ·
+    disinstallazione: <code>./install.sh --uninstall</code>
+  </footer>
+</div>
+<script>
+  document.querySelectorAll('button.copy').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var value = button.getAttribute('data-copy');
+      navigator.clipboard.writeText(value).then(function () {
+        var old = button.textContent;
+        button.textContent = 'copiato';
+        setTimeout(function () { button.textContent = old; }, 1400);
+      });
+    });
+  });
+</script>
+</body>
+</html>

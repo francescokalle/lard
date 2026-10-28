@@ -26,6 +26,7 @@ DO_CONFIG=1
 DO_DOCS=1
 DO_GREETER=1
 DO_SYSTEMD=1
+DO_ENABLE=1
 DO_NIRI=0
 DRY_RUN=0
 UNINSTALL=0
@@ -64,6 +65,9 @@ OPZIONI PRINCIPALI
   --no-greeter          non installa gli asset greeter
   --no-docs             non installa la documentazione
   --no-systemd          non installa la unit utente
+  --no-enable           non abilitare l'avvio automatico di LARD
+                        (default: abilita lard.service, o le bind niri se la
+                        unit è già attiva)
   -y, --yes             non chiedere conferma per la disinstallazione
   -h, --help            questo aiuto
 
@@ -113,6 +117,8 @@ while [ "$#" -gt 0 ]; do
         --no-greeter) DO_GREETER=0 ;;
         --no-docs) DO_DOCS=0 ;;
         --no-systemd) DO_SYSTEMD=0 ;;
+        --no-enable) DO_ENABLE=0 ;;
+        --enable) DO_ENABLE=1 ;;
         -y|--yes) ASSUME_YES=1 ;;
         -h|--help) usage; exit 0 ;;
         *) die "opzione sconosciuta: $1 (usa --help)" ;;
@@ -365,6 +371,56 @@ install_user_config() {
 }
 
 # ---------------------------------------------------------------------------
+# Avvio automatico
+
+# Make LARD start with the session, without ever starting it twice: one
+# mechanism only, and only if none is already configured.
+enable_autostart() {
+    [ "$DO_ENABLE" -eq 1 ] || { log "avvio automatico non richiesto (--no-enable)"; return 0; }
+    [ -z "$DESTDIR" ] || return 0
+    if [ "$USER_MODE" -eq 1 ]; then
+        log "--user: avvio automatico non gestito (usa spawn-at-startup in niri)"
+        return 0
+    fi
+    local niri_cfg
+    niri_cfg="${XDG_CONFIG_HOME:-$HOME/.config}/niri/config.kdl"
+    if command -v systemctl >/dev/null 2>&1 \
+        && [ "$(systemctl --user is-enabled lard.service 2>/dev/null || true)" = "enabled" ]; then
+        ok "avvio automatico già attivo: lard.service (systemd utente)"
+        return 0
+    fi
+    if [ -f "$niri_cfg" ] && grep -Eq '^[[:space:]]*spawn-at-startup[^/]*lard' "$niri_cfg"; then
+        ok "avvio automatico già configurato in $niri_cfg"
+        return 0
+    fi
+    if [ "$DRY_RUN" -eq 1 ]; then
+        log "[dry-run] abiliterei lard.service (systemd utente)"
+        return 0
+    fi
+    if command -v systemctl >/dev/null 2>&1 \
+        && systemctl --user daemon-reload >/dev/null 2>&1 \
+        && systemctl --user enable --now lard.service >/dev/null 2>&1; then
+        ok "avvio automatico attivo: lard.service (systemd utente)"
+        return 0
+    fi
+    # No user systemd (or a session that does not know graphical-session):
+    # niri's own spawn-at-startup is the portable path.
+    if [ -f "$niri_cfg" ]; then
+        if grep -Eq '^[[:space:]]*spawn-at-startup[^/]*lard' "$niri_cfg"; then
+            ok "avvio automatico già configurato in $niri_cfg"
+            return 0
+        fi
+        backup_path "$niri_cfg"
+        printf '\n// >>> lard (avvio automatico, gestito da install.sh)\nspawn-at-startup "%s/bin/lard"\n// <<< lard\n' \
+            "$PREFIX" >> "$niri_cfg"
+        ok "avvio automatico aggiunto a $niri_cfg (spawn-at-startup)"
+        return 0
+    fi
+    warn "avvio automatico non impostato: abilita lard.service o aggiungi"
+    warn "  spawn-at-startup \"$PREFIX/bin/lard\"  alla configurazione di niri"
+}
+
+# ---------------------------------------------------------------------------
 # Integrazione niri (opzionale e conservativa)
 
 install_niri_binds() {
@@ -496,6 +552,7 @@ do_install() {
     fi
 
     install_niri_binds
+    enable_autostart
 
     if [ "$DRY_RUN" -eq 0 ] && [ -z "$DESTDIR" ] && [ -x "$bin_dst" ]; then
         "$bin_dst" version >/dev/null 2>&1 && ok "verifica binario: $("$bin_dst" version)" \
@@ -528,9 +585,15 @@ do_install() {
     fi
     echo
     echo "Prossimi passi:"
-    echo "  1) niri: aggiungi  spawn-at-startup \"lard\"  e le bind di docs/niri/config.kdl"
-    echo "     (oppure rilancia ./install.sh --niri per aggiungerle automaticamente)."
-    echo "  2) avvia la shell:  lard"
+    if [ "$DO_ENABLE" -eq 1 ] && [ "$USER_MODE" -eq 0 ]; then
+        echo "  1) LARD parte con la sessione (avvio automatico configurato)."
+        echo "  2) avviala subito:  $PREFIX/bin/lard"
+        echo "     oppure:          systemctl --user restart lard.service"
+    else
+        echo "  1) niri: aggiungi  spawn-at-startup \"lard\"  e le bind di docs/niri/config.kdl"
+        echo "     (oppure rilancia ./install.sh --niri per aggiungerle automaticamente)."
+        echo "  2) avvia la shell:  lard"
+    fi
     if [ "$USER_MODE" -eq 1 ]; then
         echo "  3) lockscreen: richiede installazione di sistema (PAM in /etc/pam.d)"
     else
@@ -584,6 +647,9 @@ do_uninstall() {
         fi
     }
 
+    if [ -n "$unit_file" ] && [ "$DRY_RUN" -eq 0 ] && command -v systemctl >/dev/null 2>&1; then
+        systemctl --user disable --now lard.service >/dev/null 2>&1 || true
+    fi
     remove_path "$bin_dst"
     remove_path "$doc_dst"
     remove_path "$pam_file"
