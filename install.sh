@@ -212,6 +212,18 @@ missing_deps() {
     return $missing
 }
 
+sudo_warmup() {
+    # `sudo` prompts on the controlling terminal; a backgrounded job (the
+    # spinner) cannot read it, so the prompt would fail silently. Ask once,
+    # in the foreground, before any spinner starts.
+    if staged || [ "$USER_MODE" -eq 1 ] || [ "$EUID" -eq 0 ]; then return 0; fi
+    command -v sudo >/dev/null 2>&1 || return 0
+    if ! sudo -n true >/dev/null 2>&1; then
+        printf '  %s·%s %s\n' "$C_GREY" "$C_RESET" "sudo is needed for the system files and packages"
+        sudo -v || die "sudo is required to install into $PREFIX and $SYSCONFDIR (or use --user)"
+    fi
+}
+
 install_deps() {
     if ! missing_deps; then
         ui_ok "dependencies" "build toolchain already present"
@@ -227,14 +239,17 @@ install_deps() {
     fi
     detect_packages
     if [ -z "$PACKAGES" ]; then
-        ui_warn "unknown distribution: install these manually: pkg-config wayland pam fontconfig xkbcommon vulkan"
-        return 0
+        # Unknown distribution: try the most common package names instead of
+        # silently skipping, so a missing toolchain is caught here.
+        PACKAGES="gcc make pkg-config wayland-devel pam-devel fontconfig-devel libxkbcommon-devel"
+        ui_warn "unknown distribution: trying generic package names"
     fi
     local pm=""
     for candidate in pacman apt-get dnf zypper; do
         command -v "$candidate" >/dev/null 2>&1 && { pm="$candidate"; break; }
     done
     [ -n "$pm" ] || { ui_warn "no package manager found; install manually: $PACKAGES"; return 0; }
+    sudo_warmup
     case "$pm" in
         pacman)
             run_spin "dependencies" as_root pacman -S --needed --noconfirm $PACKAGES ;;
@@ -245,12 +260,43 @@ install_deps() {
             run_spin "dependencies" as_root dnf install -y $PACKAGES ;;
         zypper)
             run_spin "dependencies" as_root zypper --non-interactive install $PACKAGES ;;
-    esac || die "could not install the build dependencies"
+    esac || die "could not install the build dependencies (see $LOG_FILE)"
     if missing_deps; then
-        ui_warn "some dependencies are still missing: check the log ($LOG_FILE)"
-    else
-        ui_ok "dependencies" "installed with $pm"
+        ui_fail "dependencies still missing after the installation"
+        missing_report
+        die "install them and run the installer again"
     fi
+    ui_ok "dependencies" "installed with $pm"
+}
+
+# Name exactly what is missing, so the message is actionable.
+missing_report() {
+    { command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 \
+        || command -v clang >/dev/null 2>&1; } \
+        || ui_warn "missing: C compiler (gcc or clang)"
+    command -v pkg-config >/dev/null 2>&1 || ui_warn "missing: pkg-config"
+    for lib in wayland-client libpam fontconfig xkbcommon; do
+        pkg-config --exists "$lib" 2>/dev/null || ui_warn "missing: $lib development headers"
+    done
+}
+
+# rustc links with `cc`; when only `gcc`/`clang` exist we point it there instead
+# of failing with "linker `cc` not found".
+ensure_cc() {
+    if command -v cc >/dev/null 2>&1; then return 0; fi
+    local alt=""
+    for candidate in gcc clang; do
+        command -v "$candidate" >/dev/null 2>&1 && { alt="$candidate"; break; }
+    done
+    if [ -n "$alt" ]; then
+        export CC="$alt"
+        export RUSTFLAGS="${RUSTFLAGS:-} -C linker=$alt"
+        ui_ok "linker" "using $alt (no cc)"
+        return 0
+    fi
+    ui_fail "no C compiler/linker found (need gcc or clang)"
+    ui_warn "install it and re-run:  pacman -S base-devel | apt install build-essential | dnf install gcc"
+    die "cannot build without a C toolchain"
 }
 
 ensure_rust() {
@@ -297,6 +343,20 @@ user_config_path() {
     printf '%s/lard/config.toml' "${XDG_CONFIG_HOME:-$HOME/.config}"
 }
 
+# A cargo failure is a wall of "due to a previous error": show the roots only.
+build_failed() {
+    ui_fail "cargo build failed"
+    if [ -s "$LOG_FILE" ]; then
+        printf '  %s--- errors ---%s\n' "$C_GREY" "$C_RESET" >&2
+        grep -E "error(\[E[0-9]+\])?:|linker|not found|cannot find" "$LOG_FILE" \
+            | grep -v "due to a previous error" | head -12 >&2 || true
+    fi
+    if grep -q "linker .cc. not found\|linker .cc. not found" "$LOG_FILE" 2>/dev/null; then
+        ui_warn "the C linker is missing: install gcc (pacman -S base-devel | apt install build-essential | dnf install gcc)"
+    fi
+    exit 1
+}
+
 BIN_SRC=""
 build_binary() {
     local out="$SCRIPT_DIR/target/release/lard"
@@ -327,11 +387,11 @@ build_binary() {
                 "$C_GREY" "${crates:-0}" "$((SECONDS-started))" "$C_RESET"
             sleep 0.15
         done
-        wait "$pid" || die "cargo build failed"
+        wait "$pid" || build_failed
         printf '\r\033[K'
     else
         ( cd "$SCRIPT_DIR" && nice -n 10 ionice -c2 -n 7 cargo build --release --locked ) >>"$LOG_FILE" 2>&1 \
-            || die "cargo build failed"
+            || build_failed
     fi
     [ -x "$out" ] || die "build finished but $out does not exist"
     ui_ok "build" "release · $((SECONDS-started))s"
@@ -424,7 +484,9 @@ do_install() {
     ui_header
     printf '  %s%s%s\n' "$C_GREY" "prefix $PREFIX · config $SYSCONFDIR${DESTDIR:+ · staging $DESTDIR}" "$C_RESET"
 
+    sudo_warmup
     install_deps
+    ensure_cc
     [ "$SKIP_BUILD" -eq 1 ] || ensure_rust
 
     build_binary
