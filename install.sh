@@ -274,6 +274,61 @@ install_deps() {
     ui_ok "dependencies" "installed with $pm"
 }
 
+# smithay-client-toolkit 0.21 generates bindings from wayland-client and
+# wayland-protocols at build time: too old a tree fails inside its build script.
+version_ge() { # version_ge HAVE NEED
+    [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]
+}
+
+protocol_requirements() {
+    local client protocols scanner datadir bad=0
+    client="$(pkg-config --modversion wayland-client 2>/dev/null || echo 0)"
+    protocols="$(pkg-config --modversion wayland-protocols 2>/dev/null || echo 0)"
+    scanner="$(wayland-scanner --version 2>/dev/null | awk '{print $NF}' || echo 0)"
+    datadir="$(pkg-config --variable=pkgdatadir wayland-protocols 2>/dev/null || true)"
+    version_ge "$client" "1.20" || { ui_warn "wayland-client $client is too old (need >= 1.20)"; bad=1; }
+    version_ge "$scanner" "1.20" || { ui_warn "wayland-scanner $scanner is too old (need >= 1.20)"; bad=1; }
+    if ! version_ge "$protocols" "1.31"; then
+        ui_warn "wayland-protocols $protocols is too old: smithay-client-toolkit 0.21 needs >= 1.31"
+        bad=1
+    fi
+    # The build script reads the XML files from the package datadir: a .pc that
+    # points at a tree without ext-session-lock-v1 is the classic failure.
+    if [ -n "$datadir" ]; then
+        for xml in stable/ext-session-lock/ext-session-lock-v1.xml \
+                   staging/ext-session-lock/ext-session-lock-v1.xml \
+                   stable/viewporter/viewporter.xml; do
+            [ -f "$datadir/$xml" ] || { ui_warn "missing protocol xml: $datadir/$xml"; bad=1; }
+        done
+    fi
+    if [ "$bad" -eq 1 ]; then
+        ui_warn "how to fix:"
+        ui_warn "  Arch:    pacman -S --needed wayland wayland-protocols"
+        ui_warn "  Debian:  apt install wayland-protocols (bookworm+; jammy ships 1.25 -> too old)"
+        ui_warn "  Fedora:  dnf install wayland-protocols-devel"
+        ui_warn "  Ubuntu 22.04/Mint: build wayland-protocols >= 1.31 from source"
+        ui_warn "  (gitlab.freedesktop.org/wayland/wayland-protocols, meson setup build --prefix=/usr/local)"
+    fi
+    return $bad
+}
+
+# Everything a build failure report needs to be actionable without a back-and-forth.
+build_diagnostics() {
+    {
+        echo "--- diagnostics ---"
+        echo "date:    $(date -Is)"
+        echo "os:      ${PRETTY_NAME:-unknown}"
+        echo "rustc:   $(rustc -V 2>/dev/null || echo missing)"
+        echo "cargo:   $(cargo -V 2>/dev/null || echo missing)"
+        echo "cc:      $(cc --version 2>/dev/null | head -1 || echo missing)"
+        echo "wayland-client:  $(pkg-config --modversion wayland-client 2>/dev/null || echo missing)"
+        echo "wayland-protocols: $(pkg-config --modversion wayland-protocols 2>/dev/null || echo missing)"
+        echo "wayland-scanner: $(wayland-scanner --version 2>/dev/null || echo missing)"
+        echo "xkbcommon: $(pkg-config --modversion xkbcommon 2>/dev/null || echo missing)"
+        echo "libpam:    $(pkg-config --modversion pam 2>/dev/null || pkg-config --modversion libpam 2>/dev/null || echo missing)"
+    } | tee -a "$LOG_FILE" >&2
+}
+
 # Name exactly what is missing, so the message is actionable.
 missing_report() {
     { command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 \
@@ -366,6 +421,8 @@ build_failed() {
                 && ui_warn "wayland-scanner missing: install libwayland-bin (Debian) or wayland (Arch)"
         fi
     fi
+    build_diagnostics
+    ui_warn "full log: $LOG_FILE"
     if grep -q "linker .cc. not found\|linker .cc. not found" "$LOG_FILE" 2>/dev/null; then
         ui_warn "the C linker is missing: install gcc (pacman -S base-devel | apt install build-essential | dnf install gcc)"
     fi
@@ -501,6 +558,7 @@ do_install() {
 
     sudo_warmup
     install_deps
+    protocol_requirements || ui_warn "the wayland stack is older than smithay-client-toolkit 0.21 expects"
     ensure_cc
     [ "$SKIP_BUILD" -eq 1 ] || ensure_rust
 
@@ -599,8 +657,10 @@ EOF
 
 # ---------------------------------------------------------------------------
 
-LOG_FILE="$(mktemp)"
-trap 'rm -f "$LOG_FILE"' EXIT
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/lard"
+mkdir -p "$CACHE_DIR" 2>/dev/null || true
+LOG_FILE="$CACHE_DIR/install.log"
+: > "$LOG_FILE" 2>/dev/null || LOG_FILE="$(mktemp)"
 
 if [ "$UNINSTALL" -eq 1 ]; then
     ui_header
