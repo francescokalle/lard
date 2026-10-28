@@ -1,0 +1,14 @@
+// Accent colours shared by the LARD session config.
+// Included from config-lard.kdl; keep the palette in sync with config.toml.
+
+layout {
+    focus-ring {
+        active-color "#EBC16C"
+        inactive-color "#3A3327"
+    }
+
+    border {
+        active-color "#EBC16C"
+        inactive-color "#2A251D"
+    }
+}

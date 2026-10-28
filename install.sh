@@ -585,28 +585,44 @@ install_wallpaper_daemon() {
 
 # The shortcuts used on the development machine, shipped with the sources and
 # installed on every target (with a backup and without duplicating the include).
-install_niri_binds() {
-    local dir="${XDG_CONFIG_HOME:-$HOME/.config}/niri"
-    local cfg="$dir/config.kdl"
-    if [ ! -d "$dir" ]; then
-        ui_skip "shortcuts" "no ~/.config/niri"
-        return 0
-    fi
+install_niri_config() {
+    [ -n "$DESTDIR" ] && { ui_skip "niri" "skipped in staging"; return 0; }
+    [ "$EUID" -eq 0 ] && { ui_skip "niri" "run as your user"; return 0; }
+    local dir cfg plain drop src="$SCRIPT_DIR/config/niri"
+    dir="${XDG_CONFIG_HOME:-$HOME/.config}/niri"
+    cfg="$dir/config-lard.kdl"
+    plain="$dir/config.kdl"
     if [ "$DRY_RUN" -eq 1 ]; then
-        ui_skip "shortcuts" "[dry-run] would install lard/binds.kdl and include it"
+        ui_skip "niri" "[dry-run] would install config-lard.kdl + lard/*.kdl and the niri.service drop-in"
         return 0
     fi
     mkdir -p "$dir/lard"
-    [ -f "$dir/lard/binds.kdl" ] && cp -a "$dir/lard/binds.kdl" "$dir/lard/binds.kdl.bak-$(date +%Y%m%d%H%M%S)"
-    install -Dm644 "$SCRIPT_DIR/config/niri/binds.kdl" "$dir/lard/binds.kdl"
+    local f name
+    for f in "$src"/lard/*.kdl; do
+        [ -f "$f" ] || continue
+        name="$(basename "$f")"
+        [ -f "$dir/lard/$name" ] && cp -a "$dir/lard/$name" "$dir/lard/$name.bak-$(date +%Y%m%d%H%M%S)"
+        install -Dm644 "$f" "$dir/lard/$name"
+    done
     if [ -n "${TERMINAL:-}" ] && [ "$TERMINAL" != "kitty" ]; then
         sed -i "s|spawn \"kitty\"|spawn \"$TERMINAL\"|g" "$dir/lard/binds.kdl"
     fi
-    if [ -f "$cfg" ] && ! grep -q 'lard/binds.kdl' "$cfg"; then
-        cp -a "$cfg" "$cfg.bak-$(date +%Y%m%d%H%M%S)"
-        printf '\n// >>> lard shortcuts\ninclude "lard/binds.kdl"\n// <<< lard shortcuts\n' >> "$cfg"
+    [ -f "$cfg" ] && cp -a "$cfg" "$cfg.bak-$(date +%Y%m%d%H%M%S)"
+    install -Dm644 "$src/config-lard.kdl" "$cfg"
+    # A config error here is a black screen after login: refuse to activate it.
+    if have niri && ! niri validate -c "$cfg" >>"$LOG_FILE" 2>&1; then
+        mv -f "$cfg" "$cfg.invalid"
+        ui_warn "niri rejected the generated config: keeping your current one"
+        return 0
     fi
-    ui_ok "shortcuts" "lard/binds.kdl installed (Mod+Space launcher, Mod+T terminal, Mod+Shift+Space wallpapers)"
+    if [ ! -f "$plain" ]; then
+        install -Dm644 "$cfg" "$plain"
+    fi
+    drop="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/niri.service.d/10-lard.conf"
+    mkdir -p "$(dirname "$drop")"
+    printf '[Service]\nEnvironment=NIRI_CONFIG=%s\n' "$cfg" > "$drop"
+    command -v systemctl >/dev/null 2>&1 && systemctl --user daemon-reload >/dev/null 2>&1 || true
+    ui_ok "niri" "config-lard.kdl + lard/*.kdl installed (NIRI_CONFIG)"
 }
 
 # Install a package only when its command/unit is missing.
@@ -631,8 +647,22 @@ pm_install() {
 }
 
 # Add a line to niri's config once (with a backup).
+# The session config actually in use: NIRI_CONFIG from our niri.service drop-in
+# when present, otherwise the plain ~/.config/niri/config.kdl.
+niri_config_path() {
+    local base="${XDG_CONFIG_HOME:-$HOME/.config}"
+    local drop="$base/systemd/user/niri.service.d/10-lard.conf"
+    if [ -f "$drop" ]; then
+        local custom
+        custom="$(sed -n 's/^Environment=NIRI_CONFIG=//p' "$drop" | head -n1)"
+        [ -n "$custom" ] && { printf '%s' "$custom"; return 0; }
+    fi
+    printf '%s' "$base/niri/config.kdl"
+}
+
 niri_spawn() { # niri_spawn "<command line>"
-    local cfg="${XDG_CONFIG_HOME:-$HOME/.config}/niri/config.kdl" line="$1"
+    local cfg line="$1"
+    cfg="$(niri_config_path)"
     [ -f "$cfg" ] || return 0
     grep -Fq "$line" "$cfg" && return 0
     if [ "$DRY_RUN" -eq 1 ]; then
@@ -882,6 +912,21 @@ ask_boot() {
     return 0
 }
 
+# Remove the tty1 stanza written by older versions (and by tty mode).
+remove_shell_autostart() {
+    local profile="${1:-}"
+    if [ -z "$profile" ]; then
+        local user="${SUDO_USER:-${USER:-$(id -un)}}"
+        [ "$user" = "root" ] && user="$(getent passwd 1000 | cut -d: -f1)"
+        profile="$(getent passwd "$user" | cut -d: -f6)/.bash_profile"
+    fi
+    [ -f "$profile" ] || return 0
+    grep -q '# >>> lard autologin' "$profile" 2>/dev/null || return 0
+    cp -a "$profile" "$profile.bak-$(date +%Y%m%d%H%M%S)"
+    sed -i '/# >>> lard autologin/,/# <<< lard autologin/d' "$profile"
+    ui_ok "boot" "removed the old tty1 autologin stanza from $profile"
+}
+
 # No display manager: starting a login on tty1 launches niri (and LARD with it).
 install_tty_autostart() {
     local user="${SUDO_USER:-${USER:-$(id -un)}}"
@@ -896,19 +941,23 @@ install_tty_autostart() {
     # 1) the shell that starts niri when it lands on tty1
     local profile
     profile="$(getent passwd "$user" | cut -d: -f6)/.bash_profile"
-    if ! grep -q '>>> lard autologin' "$profile" 2>/dev/null; then
-        [ -f "$profile" ] && cp -a "$profile" "$profile.bak-$(date +%Y%m%d%H%M%S)"
-        cat >> "$profile" <<'EOP'
+    remove_shell_autostart "$profile"
+    cat >> "$profile" <<'EOP'
 
 # >>> lard autologin
-if [ -z "$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
+# Only on the getty autologin VT, and only when the parent is really agetty:
+# niri-session runs a login shell of its own. Without that check this stanza
+# re-execs niri-session forever (black screen, 100% CPU, no niri).
+if [ -z "$WAYLAND_DISPLAY" ] && [ -z "$LARD_AUTOSTART" ] \
+    && [ "$(tty)" = "/dev/tty1" ] \
+    && [ "$(ps -o comm= -p "$PPID" 2>/dev/null)" = "agetty" ]; then
+    export LARD_AUTOSTART=1
     exec niri-session
 fi
 # <<< lard autologin
 EOP
-        [ "$(id -u)" -eq 0 ] && as_root chown "$user" "$profile"
-        ui_ok "boot" "niri-session on tty1 login ($profile)"
-    fi
+    [ "$(id -u)" -eq 0 ] && as_root chown "$user" "$profile"
+    ui_ok "boot" "niri-session on tty1 login ($profile)"
     # 2) tty1 logs the user in automatically: no login screen to configure
     local agetty
     agetty="$(command -v agetty 2>/dev/null || echo /sbin/agetty)"
@@ -970,6 +1019,12 @@ install_boot() {
             && ui_ok "boot" "created the 'greeter' user" \
             || ui_warn "cannot create the 'greeter' user"
     fi
+    # The host compositor writes its state/logs in the home directory.
+    local greeter_home
+    greeter_home="$(getent passwd greeter | cut -d: -f6)"
+    if [ -n "$greeter_home" ] && [ ! -d "$greeter_home" ]; then
+        as_root mkdir -p "$greeter_home" && as_root chown greeter:greeter "$greeter_home"
+    fi
     # wgpu needs the DRM render node, niri needs the seat devices: a greeter
     # outside those groups starts and dies with a permission error.
     local g
@@ -986,6 +1041,7 @@ install_boot() {
         as_root rm -f /etc/systemd/system/getty@tty1.service.d/autologin.conf
         ui_ok "boot" "removed the tty1 autologin override (greetd owns the VT)"
     fi
+    remove_shell_autostart
     # Another display manager would keep the seat: greetd can start and then be
     # unable to draw because something else owns the VT.
     if command -v systemctl >/dev/null 2>&1; then
@@ -1085,33 +1141,32 @@ enable_autostart() {
         ui_skip "autostart" "not requested"
         return 0
     fi
-    local niri_cfg="${XDG_CONFIG_HOME:-$HOME/.config}/niri/config.kdl"
-    if [ -f "$niri_cfg" ] && grep -Eq '^[[:space:]]*spawn-at-startup[^/]*lard' "$niri_cfg"; then
-        ui_ok "autostart" "already configured in $niri_cfg"
-        return 0
+    # The user unit is the reliable path: niri-session starts
+    # graphical-session.target, and the unit is ordered after it. It also
+    # restarts the shell if it crashes, which a spawn-at-startup does not.
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl --user daemon-reload >/dev/null 2>&1 || true
+        if systemctl --user enable lard.service >/dev/null 2>&1; then
+            ui_ok "autostart" "lard.service (user systemd, after the graphical session)"
+            return 0
+        fi
     fi
-    # niri's spawn-at-startup is the reliable path: it inherits
-    # WAYLAND_DISPLAY and NIRI_SOCKET from the compositor.
-    if [ -f "$niri_cfg" ]; then
+    # Fallback for systems without a usable user manager.
+    local cfg
+    cfg="$(niri_config_path)"
+    if [ -f "$cfg" ]; then
+        if grep -Eq '^[[:space:]]*spawn-at-startup[^/]*lard' "$cfg"; then
+            ui_ok "autostart" "already configured in $cfg"
+            return 0
+        fi
         if [ "$DRY_RUN" -eq 1 ]; then
             ui_skip "autostart" "[dry-run] would add spawn-at-startup \"$PREFIX/bin/lard\""
             return 0
         fi
-        cp -a "$niri_cfg" "$niri_cfg.bak-$(date +%Y%m%d%H%M%S)"
+        cp -a "$cfg" "$cfg.bak-$(date +%Y%m%d%H%M%S)"
         printf '\n// >>> lard (autostart, managed by install.sh)\nspawn-at-startup "%s/bin/lard"\n// <<< lard\n' \
-            "$PREFIX" >> "$niri_cfg"
-        # One mechanism only: a systemd unit started before niri would exit 78.
-        if command -v systemctl >/dev/null 2>&1 \
-            && [ "$(systemctl --user is-enabled lard.service 2>/dev/null || true)" = "enabled" ]; then
-            systemctl --user disable lard.service >/dev/null 2>&1 || true
-        fi
-        ui_ok "autostart" "spawn-at-startup added to $niri_cfg"
-        return 0
-    fi
-    if command -v systemctl >/dev/null 2>&1 \
-        && systemctl --user daemon-reload >/dev/null 2>&1 \
-        && systemctl --user enable --now lard.service >/dev/null 2>&1; then
-        ui_ok "autostart" "lard.service (user systemd) enabled"
+            "$PREFIX" >> "$cfg"
+        ui_ok "autostart" "spawn-at-startup added to $cfg"
         return 0
     fi
     ui_warn "autostart not configured: add spawn-at-startup \"$PREFIX/bin/lard\" to your niri config"
@@ -1266,8 +1321,8 @@ EOF
     fi
 
     install_default_wallpaper
+    install_niri_config
     enable_autostart
-    install_niri_binds
     install_boot
     setup_system
 
