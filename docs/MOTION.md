@@ -49,7 +49,7 @@ scrive anche `docs/motion-springs.svg` (posizione e velocità nel tempo).
 
 A cosa sono associati, nei default:
 
-- `animation.panel` → `SNAPPY` (popover, control center: decisi, senza rimbalzo);
+- `animation.panel` → `SMOOTH` (popover, control center: planata breve, senza rimbalzo);
 - `animation.launcher` → `SMOOTH` (planata più lunga, la card è grande);
 - `animation.osd` → `STRICT` (volume/luminosità devono rispondere subito);
 - `animation.notification` → `BOUNCY` (entrano con un rimbalzo del 7 %).

@@ -211,6 +211,15 @@ impl SettingsView {
         }
     }
 
+    /// Restart the opening spring once the surface is mapped.
+    pub fn start_entrance(&mut self) {
+        if self.reduce_motion {
+            return;
+        }
+        self.progress.snap_to(0.0);
+        self.progress.set_target(1.0);
+    }
+
     pub fn close(&mut self) {
         self.open = false;
         if self.reduce_motion {

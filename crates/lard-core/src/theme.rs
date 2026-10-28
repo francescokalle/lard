@@ -456,7 +456,7 @@ impl Default for AnimationConfig {
     /// immediate and notifications pop slightly.
     fn default() -> Self {
         Self {
-            panel: crate::anim::SpringConfig::SNAPPY,
+            panel: crate::anim::SpringConfig::SMOOTH,
             launcher: crate::anim::SpringConfig::SMOOTH,
             osd: crate::anim::SpringConfig::STRICT,
             notification: crate::anim::SpringConfig::BOUNCY,

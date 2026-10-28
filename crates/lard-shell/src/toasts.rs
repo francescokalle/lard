@@ -146,6 +146,20 @@ impl ToastStack {
     }
 
     /// Advance animations and expiry. Returns ids that expired.
+    /// Restart the entrance of the visible toasts once the surface is mapped,
+    /// so the island grows in instead of already being at full width.
+    pub fn start_entrance(&mut self) {
+        if self.reduce_motion {
+            return;
+        }
+        for toast in &mut self.toasts {
+            if !toast.closing {
+                toast.progress.snap_to(0.0);
+                toast.progress.set_target(1.0);
+            }
+        }
+    }
+
     pub fn update(&mut self, dt: f32) -> Vec<u32> {
         let mut expired = Vec::new();
         for toast in &mut self.toasts {

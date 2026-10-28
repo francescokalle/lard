@@ -1864,6 +1864,14 @@ impl App {
     }
 
     fn resize_after_configure(&mut self, id: &ObjectId, width: u32, height: u32) {
+        // The first configure is the moment the surface can actually be drawn:
+        // start the entrance here, or it would play while the layer is still
+        // being mapped and look like it had no animation at all.
+        let first = self
+            .surfaces
+            .get(id)
+            .map(|entry| (!entry.configured).then(|| entry.role.clone()))
+            .flatten();
         let fallback = self
             .surfaces
             .get(id)
@@ -1892,6 +1900,20 @@ impl App {
         self.force_update = true;
         entry.blur_rect = None;
         entry.needs_redraw = true;
+
+        if let Some(role) = first
+            && let Some(shell) = &mut self.shell
+        {
+            match role {
+                Role::Launcher => shell.launcher_entrance(),
+                Role::Popover => shell.popover_entrance(),
+                Role::ControlCenter => shell.control_entrance(),
+                Role::Settings => shell.settings_entrance(),
+                Role::Wallpapers => shell.wallpaper_entrance(),
+                Role::Toasts => shell.toasts_entrance(),
+                _ => {}
+            }
+        }
     }
 
     /// Restrict the compositor blur to the overlay panel shape. The region is

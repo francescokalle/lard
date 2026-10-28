@@ -157,7 +157,7 @@ impl Popover {
             PopoverKind::Clock => Size::new(288.0, 292.0),
             PopoverKind::Network => Size::new(268.0, 142.0),
             PopoverKind::Bluetooth => Size::new(240.0, 134.0),
-            PopoverKind::Battery => Size::new(304.0, 282.0),
+            PopoverKind::Battery => Size::new(360.0, 318.0),
             PopoverKind::Notifications => Size::new(268.0, 118.0),
             PopoverKind::System => Size::new(384.0, 436.0),
             PopoverKind::Power => Size::new(248.0, 244.0),
@@ -196,6 +196,16 @@ impl Popover {
         } else {
             self.progress.set_target(1.0);
         }
+    }
+
+    /// Restart the opening spring once the surface is mapped (see
+    /// `Launcher::start_entrance`).
+    pub fn start_entrance(&mut self) {
+        if self.reduce_motion {
+            return;
+        }
+        self.progress.snap_to(0.0);
+        self.progress.set_target(1.0);
     }
 
     pub fn close(&mut self) {
@@ -516,7 +526,9 @@ impl Popover {
             p
         };
         let content_p = if self.origin.is_some() {
-            smoothstep(0.82, 1.0, p)
+            // The card lands before its content, but not by so much that the
+            // content appears when everything has already stopped.
+            smoothstep(0.62, 0.95, p)
         } else {
             p
         };

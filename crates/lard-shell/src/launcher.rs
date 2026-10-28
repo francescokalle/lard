@@ -157,6 +157,17 @@ impl Launcher {
         }
     }
 
+    /// Restart the opening spring: the shell calls this the moment the layer
+    /// surface exists, so the entrance plays *on screen* instead of finishing
+    /// while the compositor is still mapping the surface.
+    pub fn start_entrance(&mut self) {
+        if self.reduce_motion {
+            return;
+        }
+        self.progress.snap_to(0.0);
+        self.progress.set_target(1.0);
+    }
+
     pub fn close(&mut self) {
         self.open = false;
         // The origin is kept so the closing animation is the reverse of the

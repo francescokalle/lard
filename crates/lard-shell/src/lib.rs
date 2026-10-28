@@ -850,6 +850,33 @@ impl Shell {
         self.dirty = true;
     }
 
+    /// Entrances that must start when the surface is actually on screen: the
+    /// surface is created a frame or two after `open()`, and a spring started
+    /// there would burn most of the animation while the compositor maps it.
+    pub fn launcher_entrance(&mut self) {
+        self.launcher.start_entrance();
+    }
+
+    pub fn popover_entrance(&mut self) {
+        self.popover.start_entrance();
+    }
+
+    pub fn control_entrance(&mut self) {
+        self.control.start_entrance();
+    }
+
+    pub fn settings_entrance(&mut self) {
+        self.settings.start_entrance();
+    }
+
+    pub fn wallpaper_entrance(&mut self) {
+        self.wallpaper.start_entrance();
+    }
+
+    pub fn toasts_entrance(&mut self) {
+        self.toasts.start_entrance();
+    }
+
     pub fn close_launcher(&mut self) {
         self.launcher.close();
         self.dirty = true;
