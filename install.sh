@@ -525,10 +525,14 @@ install_fonts() {
         return 0
     fi
     if [ "$DRY_RUN" -eq 1 ]; then
-        ui_skip "fonts" "[dry-run] would install: ${pkgs[*]}"
+        local joined
+        joined="$(printf '%s ' "${pkgs[@]}")"
+        ui_skip "fonts" "[dry-run] would install: ${joined% }"
         return 0
     fi
-    ui_step "fonts" "installing: ${pkgs[*]}"
+    local joined
+    joined="$(printf '%s ' "${pkgs[@]}")"
+    ui_step "fonts" "installing: ${joined% }"
     sudo_warmup
     case "$(package_manager)" in
         pacman) as_root pacman -S --needed --noconfirm "${pkgs[@]}" >>"$LOG_FILE" 2>&1 ;;
@@ -547,7 +551,10 @@ have() { command -v "$1" >/dev/null 2>&1; }
 pm_install() {
     local -a pkgs=("$@")
     [ "${#pkgs[@]}" -gt 0 ] || return 0
-    [ "$DRY_RUN" -eq 1 ] && { ui_skip "packages" "[dry-run] would install: ${pkgs[*]}"; return 0; }
+    local joined
+    joined="$(printf '%s ' "${pkgs[@]}")"
+    joined="${joined% }"
+    [ "$DRY_RUN" -eq 1 ] && { ui_skip "packages" "[dry-run] would install: $joined"; return 0; }
     sudo_warmup
     case "$(package_manager)" in
         pacman) run_spin "packages" as_root pacman -S --needed --noconfirm "${pkgs[@]}" ;;
