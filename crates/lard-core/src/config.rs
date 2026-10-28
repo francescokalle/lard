@@ -11,6 +11,9 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
+    /// Interface language (`auto` follows $LANG).
+    #[serde(default)]
+    pub ui: UiConfig,
     pub theme: Theme,
     pub font: FontConfig,
     pub bar: BarConfig,
@@ -21,6 +24,22 @@ pub struct Config {
     pub greeter: GreeterConfig,
     pub animation: AnimationConfig,
     pub screensaver: ScreensaverConfig,
+}
+
+/// Interface preferences.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UiConfig {
+    /// `auto`, `en`, `it`, or any code with a `~/.config/lard/lang/<code>.toml`.
+    pub language: String,
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            language: "auto".into(),
+        }
+    }
 }
 
 /// Only the wallpaper of another user's configuration matters to the greeter.
@@ -149,10 +168,20 @@ impl Config {
     ///
     /// Safe to call on every change: it only swaps the palette when needed.
     pub fn apply_appearance(&mut self, prefers_dark: bool) {
+        self.apply_appearance_with(prefers_dark, None);
+    }
+
+    /// Like [`Self::apply_appearance`], with the wallpaper brightness for
+    /// `ThemeMode::Auto`.
+    ///
+    /// `wallpaper_light` is `Some(true)` when the wallaper is bright enough for
+    /// a light interface.
+    pub fn apply_appearance_with(&mut self, prefers_dark: bool, wallpaper_light: Option<bool>) {
         let dark = match self.theme.mode {
             crate::theme::ThemeMode::Dark => true,
             crate::theme::ThemeMode::Light => false,
             crate::theme::ThemeMode::System => prefers_dark,
+            crate::theme::ThemeMode::Auto => wallpaper_light.map_or(prefers_dark, |light| !light),
         };
         self.theme.set_dark(dark);
     }

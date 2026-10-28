@@ -12,6 +12,7 @@
 //! the same process backwards. The arrow keys switch scenario, so the screen
 //! stays "the usual environment" instead of turning into a slideshow.
 
+use lard_core::i18n::t;
 use crate::scene_script::SceneScripts;
 use lard_core::theme::ScreensaverEffect;
 use lard_core::{Color, Config, Point, Rect, Size};
@@ -369,7 +370,7 @@ impl Screensaver {
         };
         let hint_in = smoothstep(0.9, 1.0, reveal);
         scene.text(
-            "← → scene · press any key to exit",
+            t("← → scene · press any key to exit"),
             Point::new(pad, size.h - pad - fonts.size_small),
             TextStyle {
                 size: fonts.size_small,

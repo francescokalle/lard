@@ -2,6 +2,7 @@
 //!
 //! Each bar slot opens its own small card instead of the shared side panel.
 
+use lard_core::i18n::t;
 use crate::bar::BarIsland;
 use crate::control_center::{ControlCenter, ControlData, ControlPage};
 use crate::icons;
@@ -727,11 +728,11 @@ impl Popover {
     ) {
         let theme = &config.theme;
         let fonts = &config.font;
-        self.title(scene, panel, "Network", config, p);
+        self.title(scene, panel, t("Network"), config, p);
         let label = if data.wifi_enabled {
             data.network.label()
         } else {
-            "Wi-Fi off".into()
+            t("Wi-Fi off").into()
         };
         scene.text(
             crate::widgets::truncate(&label, 24),
@@ -745,9 +746,9 @@ impl Popover {
         );
         scene.text(
             if !data.wifi_enabled {
-                "Wi-Fi disabled"
+                t("Wi-Fi disabled")
             } else if data.network.is_connected() {
-                "Connected"
+                t("Connected")
             } else {
                 "Not connected"
             },
@@ -769,7 +770,7 @@ impl Popover {
         self.manage_button(
             scene,
             Rect::new(panel.x + 14.0, panel.y + 96.0, panel.w - 28.0, 34.0),
-            "Manage networks",
+            t("Manage networks"),
             PopoverAction::ExpandWifi,
             config,
             p,
@@ -786,16 +787,16 @@ impl Popover {
     ) {
         let theme = &config.theme;
         let fonts = &config.font;
-        self.title(scene, panel, "Bluetooth", config, p);
+        self.title(scene, panel, t("Bluetooth"), config, p);
         scene.text(
             if data.bluetooth.present {
                 if data.bluetooth.powered {
-                    "Active"
+                    t("Active")
                 } else {
-                    "Off"
+                    t("Off")
                 }
             } else {
-                "Unavailable"
+                t("Unavailable")
             },
             Point::new(panel.x + 18.0, panel.y + 44.0),
             TextStyle {
@@ -818,7 +819,7 @@ impl Popover {
             self.manage_button(
                 scene,
                 Rect::new(panel.x + 14.0, panel.y + 82.0, panel.w - 28.0, 34.0),
-                "Manage devices",
+                t("Manage devices"),
                 PopoverAction::ExpandBluetooth,
                 config,
                 p,
@@ -829,7 +830,7 @@ impl Popover {
     fn build_power(&mut self, scene: &mut Scene, panel: Rect, config: &Config, p: f32) {
         let theme = &config.theme;
         let fonts = &config.font;
-        self.title(scene, panel, "Power", config, p);
+        self.title(scene, panel, t("Power"), config, p);
         let actions = [
             (PowerAction::Lock, icons::LOCK),
             (PowerAction::Logout, icons::LOGOUT),
@@ -952,10 +953,10 @@ impl Popover {
         let theme = &config.theme;
         let fonts = &config.font;
         let battery = data.battery;
-        self.title(scene, panel, "Battery", config, p);
+        self.title(scene, panel, t("Battery"), config, p);
         if !battery.present {
             scene.text(
-                "No battery",
+                t("No battery"),
                 Point::new(panel.x + 18.0, panel.y + 46.0),
                 TextStyle {
                     size: fonts.size_body,
@@ -1012,10 +1013,10 @@ impl Popover {
             y += 25.0;
         };
         if battery.seconds_full > 0 {
-            row("Time to full", format_duration(battery.seconds_full));
+            row(t("Time to full"), format_duration(battery.seconds_full));
         }
         if battery.seconds_left > 0 {
-            row("Time left", format_duration(battery.seconds_left));
+            row(t("Time left"), format_duration(battery.seconds_left));
         }
         if battery.power_w > 0.05 {
             let watts = if battery.charging || battery.status == lard_services::battery::BatteryStatus::NotCharging {
@@ -1023,11 +1024,11 @@ impl Popover {
             } else {
                 -battery.power_w
             };
-            row("Power draw", format!("{watts:+.1} W"));
+            row(t("Power draw"), format!("{watts:+.1} W"));
         }
         if battery.energy_full_wh > 0.0 {
             row(
-                "Charge",
+                t("Charge"),
                 format!(
                     "{:.1} / {:.1} Wh",
                     battery.energy_now_wh, battery.energy_full_wh
@@ -1036,7 +1037,7 @@ impl Popover {
         }
         if battery.health_percent > 0 {
             row(
-                "Health",
+                t("Health"),
                 if battery.energy_full_design_wh > 0.0 {
                     format!(
                         "{}% · {:.1} Wh",
@@ -1048,13 +1049,13 @@ impl Popover {
             );
         }
         if battery.cycles > 0 {
-            row("Cycles", battery.cycles.to_string());
+            row(t("Cycles"), battery.cycles.to_string());
         }
         if battery.voltage_v > 0.5 {
-            row("Voltage", format!("{:.1} V", battery.voltage_v));
+            row(t("Voltage"), format!("{:.1} V", battery.voltage_v));
         }
         if !battery.charging && battery.external_power && battery.seconds_left == 0 {
-            row("Power", "External".into());
+            row(t("Power"), t("External").into());
         }
     }
 
@@ -1068,10 +1069,10 @@ impl Popover {
     ) {
         let theme = &config.theme;
         let fonts = &config.font;
-        self.title(scene, panel, "Notifications", config, p);
+        self.title(scene, panel, t(t("Notifications")), config, p);
         let count = data.notifications.len();
         let status = match count {
-            0 => "No notifications".to_string(),
+            0 => t("No notifications").to_string(),
             1 => "1 notification".to_string(),
             n => format!("{n} notifications"),
         };
@@ -1210,7 +1211,7 @@ impl Popover {
         config: &Config,
         p: f32,
     ) {
-        self.title(scene, panel, "System", config, p);
+        self.title(scene, panel, t("System"), config, p);
         crate::widgets::system_monitor(scene, panel, data.system, config, p);
     }
 
@@ -1274,7 +1275,7 @@ impl Popover {
         let gap = 8.0;
 
         scene.text(
-            "Control Center",
+            t("Control Center"),
             Point::new(inner_x, panel.y + 13.0),
             TextStyle {
                 size: fonts.size_body,
@@ -1411,7 +1412,7 @@ impl Popover {
             scene,
             Rect::new(inner_x, footer_y, footer_w, 34.0),
             icons::LOCK,
-            "Lock",
+            t(t("Lock")),
             PopoverAction::Power(PowerAction::Lock),
             false,
             config,
@@ -1421,7 +1422,7 @@ impl Popover {
             scene,
             Rect::new(inner_x + footer_w + gap, footer_y, footer_w, 34.0),
             icons::POWER,
-            "Power",
+            t("Power"),
             PopoverAction::ShowPower,
             false,
             config,
@@ -1520,7 +1521,7 @@ impl Popover {
             theme.text.scale_alpha(0.94 * p),
         );
         let status = if !on {
-            "Off".to_string()
+            t("Off").to_string()
         } else if data.network.is_connected() {
             data.network.label()
         } else {
@@ -1586,7 +1587,7 @@ impl Popover {
             p,
         );
         scene.text_center_y(
-            "Bluetooth",
+            t("Bluetooth"),
             rect.x + 50.0,
             rect.y + 24.0,
             TextStyle {
@@ -1598,7 +1599,7 @@ impl Popover {
             theme.text.scale_alpha(0.94 * p),
         );
         scene.text_center_y(
-            if on { "Active" } else { "Off" },
+            if on { t("Active") } else { t("Off") },
             rect.x + 50.0,
             rect.y + 42.0,
             TextStyle {
@@ -1644,7 +1645,7 @@ impl Popover {
         let fonts = &config.font;
         self.cc_tile_base(scene, rect, icons::DND, data.dnd, true, config, p);
         scene.text_center_y(
-            "Do not disturb",
+            t("Do not disturb"),
             rect.x + 50.0,
             rect.y + 24.0,
             TextStyle {
@@ -1656,7 +1657,7 @@ impl Popover {
             theme.text.scale_alpha(0.94 * p),
         );
         scene.text_center_y(
-            if data.dnd { "Active" } else { "Off" },
+            if data.dnd { t("Active") } else { t("Off") },
             rect.x + 50.0,
             rect.y + 42.0,
             TextStyle {
@@ -1697,7 +1698,7 @@ impl Popover {
             p,
         );
         scene.text_center_y(
-            "Notifications",
+            t(t("Notifications")),
             rect.x + 50.0,
             rect.y + 24.0,
             TextStyle {
@@ -1713,7 +1714,7 @@ impl Popover {
         } else if data.active_toasts > 1 {
             format!("{} active", data.active_toasts)
         } else {
-            "None".to_string()
+            t("None").to_string()
         };
         scene.text_center_y(
             &status,
@@ -1752,7 +1753,7 @@ impl Popover {
         let fonts = &config.font;
         let (label, value, icon, is_volume) = match slider {
             CcSlider::Volume => (
-                "Volume",
+                t("Volume"),
                 data.volume,
                 if data.muted {
                     icons::VOLUME_OFF
@@ -1761,7 +1762,7 @@ impl Popover {
                 },
                 true,
             ),
-            CcSlider::Brightness => ("Brightness", data.brightness, icons::BRIGHTNESS, false),
+            CcSlider::Brightness => (t("Brightness"), data.brightness, icons::BRIGHTNESS, false),
         };
         let muted = is_volume && data.muted;
         scene.rect(
@@ -1825,7 +1826,7 @@ impl Popover {
             theme.text.scale_alpha(0.92 * p),
         );
         let value_text = if muted {
-            "Muted".to_string()
+            t("Muted").to_string()
         } else {
             format!("{value}%")
         };
@@ -1983,7 +1984,7 @@ impl Popover {
         );
         self.hits.push((back, PopoverAction::BackControl));
         scene.text_center_y(
-            "Power",
+            t("Power"),
             panel.x + pad + 40.0,
             panel.y + 23.0,
             TextStyle {
@@ -1995,7 +1996,7 @@ impl Popover {
             theme.text.scale_alpha(p),
         );
         scene.text(
-            "Choose an action for the system",
+            t("Choose an action for the system"),
             Point::new(panel.x + pad, panel.y + 50.0),
             TextStyle {
                 size: fonts.size_small,
@@ -2008,32 +2009,32 @@ impl Popover {
             (
                 PowerAction::Lock,
                 icons::LOCK,
-                "Lock",
-                "Lock the session",
+                t(t("Lock")),
+                t("Lock the session"),
             ),
             (
                 PowerAction::Logout,
                 icons::LOGOUT,
-                "Log out",
-                "Close the session",
+                t("Log out"),
+                t("Close the session"),
             ),
             (
                 PowerAction::Suspend,
                 icons::NIGHT,
-                "Suspend",
-                "Suspend the system",
+                t("Suspend"),
+                t("Suspend the system"),
             ),
             (
                 PowerAction::Reboot,
                 icons::RESTART,
-                "Restart",
-                "Restart the system",
+                t("Restart"),
+                t("Restart the system"),
             ),
             (
                 PowerAction::PowerOff,
                 icons::POWER,
-                "Power off",
-                "Power off the system",
+                t("Power off"),
+                t("Power off the system"),
             ),
         ];
         let mut y = panel.y + 76.0;
@@ -2350,15 +2351,15 @@ mod tests {
         );
         let labels: Vec<&str> = scene.texts.iter().map(|t| scene.text_of(t)).collect();
         for label in [
-            "Control Center",
+            t("Control Center"),
             "Wi-Fi",
-            "Bluetooth",
-            "Do not disturb",
-            "Notifications",
-            "Brightness",
-            "Volume",
-            "Lock",
-            "Power",
+            t("Bluetooth"),
+            t("Do not disturb"),
+            t(t("Notifications")),
+            t("Brightness"),
+            t("Volume"),
+            t(t("Lock")),
+            t("Power"),
         ] {
             assert!(
                 labels.contains(&label),
@@ -2489,7 +2490,7 @@ mod tests {
             None,
         );
         let labels: Vec<&str> = scene.texts.iter().map(|t| scene.text_of(t)).collect();
-        for label in ["Lock", "Log out", "Suspend", "Restart", "Power off"] {
+        for label in [t(t("Lock")), t("Log out"), t("Suspend"), t("Restart"), t("Power off")] {
             assert!(
                 labels.contains(&label),
                 "expected power action {label}: {labels:?}"
@@ -2673,7 +2674,7 @@ mod tests {
             None,
         );
         let labels: Vec<&str> = scene.texts.iter().map(|t| scene.text_of(t)).collect();
-        for label in ["Lock", "Log out", "Suspend", "Restart", "Power off"] {
+        for label in [t(t("Lock")), t("Log out"), t("Suspend"), t("Restart"), t("Power off")] {
             assert!(
                 labels.contains(&label),
                 "expected power action {label}: {labels:?}"

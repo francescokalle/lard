@@ -3,6 +3,7 @@
 //! Fuzzy ranking uses `nucleo-matcher` (the matcher behind helix/nucleo) and is
 //! recomputed only on keystrokes, never per frame.
 
+use lard_core::i18n::t;
 use crate::ShellAction;
 use crate::app_icons::AppIcons;
 use crate::icons;
@@ -579,9 +580,9 @@ impl Launcher {
         if self.rows.is_empty() {
             scene.text(
                 if self.file_pending {
-                    "Searching files…"
+                    t("Searching files…")
                 } else {
-                    "No results"
+                    t("No results")
                 },
                 Point::new(card.x, card.y + 76.0),
                 TextStyle {
@@ -840,7 +841,7 @@ impl Launcher {
         }
 
         scene.text(
-            "↑↓ navigate   wheel scrolls   ↵ open   esc close",
+            t("↑↓ navigate   wheel scrolls   ↵ open   esc close"),
             Point::new(card.x, card.bottom() - 24.0),
             TextStyle {
                 size: fonts.size_small - 1.0,

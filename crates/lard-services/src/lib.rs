@@ -5,6 +5,8 @@
 //! where the system exposes an event source, with conservative polling as a
 //! fallback (battery: 30 s, network: 15 s, bluetooth: 30 s).
 
+pub use lard_core::i18n;
+
 pub mod appearance;
 pub mod audio;
 pub mod battery;

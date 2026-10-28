@@ -246,10 +246,30 @@ fn discover_wayland_display() -> Option<String> {
     newest.map(|(_, name)| name)
 }
 
+/// Light or dark, from the mode: the desktop preference, the wallpaper, or the
+/// user's explicit choice.
+fn resolve_appearance(config: &mut Config) {
+    let light = lard_shell::wallpaper_is_light(&config.theme.wallpaper);
+    config.apply_appearance_with(lard_services::appearance::prefers_dark(), light);
+}
+
+/// Set the UI language from the config (`auto` follows $LANG) and load any
+/// external translation file for it.
+fn apply_language(config: &Config) {
+    let lang = lard_core::i18n::Lang::parse(&config.ui.language)
+        .unwrap_or_else(lard_core::i18n::Lang::from_environment);
+    lard_core::i18n::set_lang(lang);
+    let loaded = lard_core::i18n::load_external(lang.code());
+    if loaded > 0 {
+        tracing::info!(language = lang.code(), keys = loaded, "external translations loaded");
+    }
+}
+
 pub fn run(mode: Mode) -> Result<()> {
     let mut config = Config::load_default()?;
     // Follow the desktop color scheme unless the user pinned light/dark.
-    config.apply_appearance(lard_services::appearance::prefers_dark());
+    resolve_appearance(&mut config);
+    apply_language(&config);
     let conn = match connect_wayland() {
         Ok(conn) => conn,
         Err(error) => {
@@ -570,7 +590,8 @@ impl App {
                 return;
             }
         };
-        config.apply_appearance(lard_services::appearance::prefers_dark());
+        resolve_appearance(&mut config);
+        apply_language(&config);
         let renderer = match Renderer::new(&self.gpu, &config.font) {
             Ok(renderer) => renderer,
             Err(error) => {

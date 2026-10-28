@@ -4,6 +4,7 @@
 //! drill-down pages inside the same panel, so every tile is actually usable
 //! instead of being a state-only switch.
 
+use lard_core::i18n::t;
 use crate::widgets::{approx_width, truncate};
 use crate::{ShellAction, ShellKey, icons};
 use lard_core::anim::{Spring, SpringConfig};
@@ -410,11 +411,11 @@ impl ControlCenter {
                 self.build_wifi(scene, panel, content_x, content_w, data, config, p);
             }
             ControlPage::Bluetooth => {
-                self.page_header(scene, panel, content_x, p, "Bluetooth", config);
+                self.page_header(scene, panel, content_x, p, t("Bluetooth"), config);
                 self.build_bluetooth(scene, panel, content_x, content_w, data, config, p);
             }
             ControlPage::System => {
-                self.page_header(scene, panel, content_x, p, "System monitor", config);
+                self.page_header(scene, panel, content_x, p, t("System monitor"), config);
                 crate::widgets::system_monitor(
                     scene,
                     Rect::new(panel.x, panel.y + 26.0, panel.w, panel.h - 26.0),
@@ -653,11 +654,11 @@ impl ControlCenter {
                 self.build_wifi(scene, panel, content_x, content_w, data, config, content_p);
             }
             ControlPage::Bluetooth => {
-                self.page_header(scene, panel, content_x, content_p, "Bluetooth", config);
+                self.page_header(scene, panel, content_x, content_p, t("Bluetooth"), config);
                 self.build_bluetooth(scene, panel, content_x, content_w, data, config, content_p);
             }
             ControlPage::System => {
-                self.page_header(scene, panel, content_x, content_p, "System monitor", config);
+                self.page_header(scene, panel, content_x, content_p, t("System monitor"), config);
                 crate::widgets::system_monitor(
                     scene,
                     Rect::new(panel.x, panel.y + 26.0, panel.w, panel.h - 26.0),
@@ -667,7 +668,7 @@ impl ControlCenter {
                 );
             }
             ControlPage::Power => {
-                self.page_header(scene, panel, content_x, content_p, "Power", config);
+                self.page_header(scene, panel, content_x, content_p, t("Power"), config);
                 self.build_power(scene, panel, content_x, content_w, data, config, content_p);
             }
         }
@@ -688,7 +689,7 @@ impl ControlCenter {
         let fonts = &config.font;
 
         scene.text(
-            "Controls",
+            t("Controls"),
             Point::new(content_x, panel.y + 18.0),
             TextStyle {
                 size: fonts.size_title,
@@ -741,7 +742,7 @@ impl ControlCenter {
                 if data.wifi_enabled {
                     truncate(&data.network.label(), 18)
                 } else {
-                    "Off".into()
+                    t("Off").into()
                 },
                 data.wifi_enabled,
                 Hit::WifiTile,
@@ -752,33 +753,33 @@ impl ControlCenter {
                 } else {
                     icons::BLUETOOTH_OFF
                 },
-                "Bluetooth".to_string(),
+                t("Bluetooth").to_string(),
                 if data.bluetooth.present {
                     if data.bluetooth.powered {
-                        "Active".into()
+                        t("Active").into()
                     } else {
-                        "Off".into()
+                        t("Off").into()
                     }
                 } else {
-                    "Absent".into()
+                    t("Absent").into()
                 },
                 data.bluetooth.powered,
                 Hit::BluetoothTile,
             ),
             (
                 icons::DND,
-                "Do not disturb".to_string(),
+                t("Do not disturb").to_string(),
                 if data.dnd {
-                    "Active".into()
+                    t("Active").into()
                 } else {
-                    "Off".into()
+                    t("Off").into()
                 },
                 data.dnd,
                 Hit::Dnd,
             ),
             (
                 battery_icon,
-                "Battery".to_string(),
+                t("Battery").to_string(),
                 if data.battery.present {
                     if data.battery.charging {
                         format!("{}% · charging", data.battery.percent)
@@ -786,7 +787,7 @@ impl ControlCenter {
                         format!("{}%", data.battery.percent)
                     }
                 } else {
-                    "Absent".into()
+                    t("Absent").into()
                 },
                 data.battery.charging,
                 Hit::Battery,
@@ -911,7 +912,7 @@ impl ControlCenter {
             theme.text_muted.scale_alpha(0.9 * p),
         );
         scene.text(
-            "Volume",
+            t("Volume"),
             Point::new(content_x + 26.0, volume_y),
             TextStyle {
                 size: fonts.size_body,
@@ -1019,7 +1020,7 @@ impl ControlCenter {
                 theme.text_muted.scale_alpha(0.9 * p),
             );
             scene.text(
-                "Brightness",
+                t("Brightness"),
                 Point::new(content_x + 26.0, brightness_y),
                 TextStyle {
                     size: fonts.size_body,
@@ -1106,7 +1107,7 @@ impl ControlCenter {
             theme.text.scale_alpha(p),
         );
         scene.text(
-            "Session",
+            t("Session"),
             Point::new(avatar.right() + 12.0, session.y + 17.0),
             TextStyle {
                 size: fonts.size_small - 0.5,
@@ -1134,7 +1135,7 @@ impl ControlCenter {
             10.0,
         );
         scene.text_center_y(
-            "Lock",
+            t(t("Lock")),
             lock_button.x,
             lock_button.center().y,
             TextStyle {
@@ -1159,7 +1160,7 @@ impl ControlCenter {
                 theme.radius.card(),
             );
             scene.text(
-                "System",
+                t("System"),
                 Point::new(system.x + 14.0, system.y + 12.0),
                 TextStyle {
                     size: fonts.size_small - 0.5,
@@ -1176,7 +1177,7 @@ impl ControlCenter {
                         .unwrap_or_else(|| "—".into()),
                 ),
                 (
-                    "Compositor",
+                    t("Compositor"),
                     if data.niri_connected {
                         "niri · connected".into()
                     } else {
@@ -1234,7 +1235,7 @@ impl ControlCenter {
             theme.accent.scale_alpha(p),
         );
         scene.text(
-            "Power",
+            t("Power"),
             Point::new(power.x + 42.0, power.y + 8.0),
             TextStyle {
                 size: fonts.size_body,
@@ -1342,16 +1343,16 @@ impl ControlCenter {
                 theme.accent,
             )
         } else if !data.wifi_enabled {
-            ("Wi-Fi off".into(), theme.text_muted)
+            (t("Wi-Fi off").into(), theme.text_muted)
         } else if data.wifi_scanning {
-            ("Scanning…".into(), theme.text_muted)
+            (t("Scanning…").into(), theme.text_muted)
         } else if data.network.is_connected() {
             (
                 format!("Connected to {}", truncate(&data.network.label(), 24)),
                 theme.text_muted,
             )
         } else {
-            ("No network connected".into(), theme.text_muted)
+            (t("No network connected").into(), theme.text_muted)
         };
         scene.text(
             &status,
@@ -1411,7 +1412,7 @@ impl ControlCenter {
                 theme.text_muted.scale_alpha(0.8 * p),
             );
             scene.text_center_y(
-                "Wi-Fi off",
+                t("Wi-Fi off"),
                 card.x,
                 card.y + 84.0,
                 TextStyle {
@@ -1424,7 +1425,7 @@ impl ControlCenter {
                 theme.text.scale_alpha(p),
             );
             scene.text_center_y(
-                "Turn Wi-Fi on to see available networks.",
+                t("Turn Wi-Fi on to see available networks."),
                 card.x,
                 card.y + 106.0,
                 TextStyle {
@@ -1443,7 +1444,7 @@ impl ControlCenter {
                 10.0,
             );
             scene.text_center_y(
-                "Turn Wi-Fi on",
+                t("Turn Wi-Fi on"),
                 button.x,
                 button.center().y,
                 TextStyle {
@@ -1479,7 +1480,7 @@ impl ControlCenter {
             let text = if data.wifi_scanning {
                 "Scanning networks…"
             } else {
-                "No networks found"
+                t("No networks found")
             };
             scene.text_center_y(
                 text,
@@ -1566,7 +1567,7 @@ impl ControlCenter {
                     8.0,
                 );
                 scene.text_center_y(
-                    "Disconnect",
+                    t("Disconnect"),
                     disconnect.x,
                     disconnect.center().y,
                     TextStyle {
@@ -1749,9 +1750,9 @@ impl ControlCenter {
         );
         scene.text(
             if enterprise {
-                "Wi-Fi login"
+                t("Wi-Fi login")
             } else {
-                "Wi-Fi password"
+                t("Wi-Fi password")
             },
             Point::new(card.x + 16.0, card.y + 14.0),
             TextStyle {
@@ -1781,7 +1782,7 @@ impl ControlCenter {
                 Rect::new(card.x + 16.0, y, field_w, 40.0),
                 icons::PERSON,
                 &self.password_identity.clone(),
-                "Username",
+                t("Username"),
                 false,
                 self.password_focus == PasswordField::Identity,
                 Hit::WifiField(PasswordField::Identity),
@@ -1795,7 +1796,7 @@ impl ControlCenter {
             Rect::new(card.x + 16.0, y, field_w, 40.0),
             icons::LOCK,
             &self.password_input.clone(),
-            "Password",
+            t("Password"),
             true,
             self.password_focus == PasswordField::Secret,
             Hit::WifiField(PasswordField::Secret),
@@ -1842,7 +1843,7 @@ impl ControlCenter {
             9.0,
         );
         scene.text_center_y(
-            "Cancel",
+            t("Cancel"),
             cancel.x,
             cancel.center().y,
             TextStyle {
@@ -1877,7 +1878,7 @@ impl ControlCenter {
             9.0,
         );
         scene.text_center_y(
-            "Connect",
+            t("Connect"),
             connect.x,
             connect.center().y,
             TextStyle {
@@ -1927,13 +1928,13 @@ impl ControlCenter {
                 theme.accent,
             )
         } else if !data.bluetooth.present {
-            ("Unavailable".into(), theme.text_muted)
+            (t("Unavailable").into(), theme.text_muted)
         } else if !data.bluetooth.powered {
-            ("Bluetooth off".into(), theme.text_muted)
+            (t("Bluetooth off").into(), theme.text_muted)
         } else if data.bt_scanning {
-            ("Scanning…".into(), theme.text_muted)
+            (t("Scanning…").into(), theme.text_muted)
         } else if data.bluetooth_devices.is_empty() {
-            ("No devices".into(), theme.text_muted)
+            (t("No devices").into(), theme.text_muted)
         } else {
             (
                 format!("{} devices", data.bluetooth_devices.len()),
@@ -1986,7 +1987,7 @@ impl ControlCenter {
                 content_w,
                 &mut y,
                 icons::BLUETOOTH_OFF,
-                "Bluetooth unavailable",
+                t("Bluetooth unavailable"),
                 "No Bluetooth adapter found.",
                 None,
                 config,
@@ -2001,9 +2002,9 @@ impl ControlCenter {
                 content_w,
                 &mut y,
                 icons::BLUETOOTH_OFF,
-                "Bluetooth off",
-                "Turn Bluetooth on to look for devices.",
-                Some((Hit::BtToggle(true), "Turn Bluetooth on")),
+                t("Bluetooth off"),
+                t("Turn Bluetooth on to look for devices."),
+                Some((Hit::BtToggle(true), t("Turn Bluetooth on"))),
                 config,
                 p,
             );
@@ -2028,7 +2029,7 @@ impl ControlCenter {
 
         if rows.is_empty() {
             let text = if data.bt_scanning {
-                "Scanning…"
+                t("Scanning…")
             } else {
                 "No devices. Start a scan."
             };
@@ -2113,14 +2114,14 @@ impl ControlCenter {
                 ("Connecting…", theme.accent)
             } else if device.connected {
                 if hovered {
-                    ("Disconnect", theme.text_muted)
+                    (t("Disconnect"), theme.text_muted)
                 } else {
-                    ("Connected", theme.accent)
+                    (t("Connected"), theme.accent)
                 }
             } else if device.paired {
-                ("Connect", theme.text_muted)
+                (t("Connect"), theme.text_muted)
             } else {
-                ("Pair", theme.accent)
+                (t("Pair"), theme.accent)
             };
             scene.text_center_y(
                 label,
@@ -2300,7 +2301,7 @@ impl ControlCenter {
             theme.text.scale_alpha(p),
         );
         scene.text(
-            "Session",
+            t("Session"),
             Point::new(avatar.right() + 12.0, session.y + 12.0),
             TextStyle {
                 size: fonts.size_small - 0.5,
@@ -2336,15 +2337,15 @@ impl ControlCenter {
         );
 
         y = session.bottom() + 20.0;
-        self.section_label(scene, y, content_x, "Session", config, p);
+        self.section_label(scene, y, content_x, t("Session"), config, p);
         y += 22.0;
         self.power_row(
             scene,
             Rect::new(content_x, y, content_w, 54.0),
             icons::LOCK,
             PowerAction::Lock,
-            "Lock",
-            "Lock the session",
+            t(t("Lock")),
+            t("Lock the session"),
             false,
             config,
             p,
@@ -2355,7 +2356,7 @@ impl ControlCenter {
             Rect::new(content_x, y, content_w, 54.0),
             icons::LOGOUT,
             PowerAction::Logout,
-            "Log out",
+            t("Log out"),
             "End the session",
             false,
             config,
@@ -2363,14 +2364,14 @@ impl ControlCenter {
         );
 
         y += 74.0;
-        self.section_label(scene, y, content_x, "System", config, p);
+        self.section_label(scene, y, content_x, t("System"), config, p);
         y += 22.0;
         self.power_row(
             scene,
             Rect::new(content_x, y, content_w, 54.0),
             icons::NIGHT,
             PowerAction::Suspend,
-            "Suspend",
+            t("Suspend"),
             "Put the system to sleep",
             false,
             config,
@@ -2382,8 +2383,8 @@ impl ControlCenter {
             Rect::new(content_x, y, content_w, 54.0),
             icons::RESTART,
             PowerAction::Reboot,
-            "Restart",
-            "Restart the system",
+            t("Restart"),
+            t("Restart the system"),
             false,
             config,
             p,
@@ -2394,15 +2395,15 @@ impl ControlCenter {
             Rect::new(content_x, y, content_w, 54.0),
             icons::POWER,
             PowerAction::PowerOff,
-            "Power off",
-            "Power off the system",
+            t("Power off"),
+            t("Power off the system"),
             true,
             config,
             p,
         );
 
         scene.text_center_y(
-            "Actions run immediately.",
+            t("Actions run immediately."),
             content_x,
             panel.bottom() - 28.0,
             TextStyle {
@@ -2601,9 +2602,9 @@ impl ControlCenter {
         );
         scene.text_center_y(
             if scanning {
-                "Scanning…"
+                t("Scanning…")
             } else {
-                "Scan"
+                t("Scan")
             },
             rect.x + 28.0,
             rect.center().y,
@@ -2718,7 +2719,7 @@ mod tests {
         let labels = texts(&scene);
         assert!(labels.contains(&"Home"), "expected SSID: {labels:?}");
         assert!(
-            labels.contains(&"Scan"),
+            labels.contains(&t("Scan")),
             "expected scan action: {labels:?}"
         );
 
@@ -2728,7 +2729,7 @@ mod tests {
         view.build(&mut scene, Size::new(1600.0, 900.0), &data, &config);
         let labels = texts(&scene);
         assert!(
-            labels.contains(&"Wi-Fi password"),
+            labels.contains(&t("Wi-Fi password")),
             "expected password prompt: {labels:?}"
         );
 
@@ -2767,9 +2768,9 @@ mod tests {
         let mut scene = Scene::new();
         view.build(&mut scene, Size::new(1600.0, 900.0), &control, &config);
         let labels = texts(&scene);
-        assert!(labels.contains(&"Wi-Fi login"), "{labels:?}");
-        assert!(labels.contains(&"Username"), "{labels:?}");
-        assert!(labels.contains(&"Password"), "{labels:?}");
+        assert!(labels.contains(&t("Wi-Fi login")), "{labels:?}");
+        assert!(labels.contains(&t("Username")), "{labels:?}");
+        assert!(labels.contains(&t("Password")), "{labels:?}");
 
         // The user name is focused first, Tab moves to the secret.
         view.key(ShellKey::Char("utente".into()));
@@ -2846,7 +2847,7 @@ mod tests {
         assert!(view.pointer_press(Point::new(1300.0, 110.0)).is_none());
         let mut scene = Scene::new();
         view.build(&mut scene, Size::new(1600.0, 900.0), &data, &config);
-        assert!(texts(&scene).contains(&"Wi-Fi password"));
+        assert!(texts(&scene).contains(&t("Wi-Fi password")));
         assert!(view.password_ssid.as_deref() == Some("Network 2"));
     }
 
@@ -2883,7 +2884,7 @@ mod tests {
         let mut scene = Scene::new();
         view.build(&mut scene, Size::new(1600.0, 900.0), &data, &config);
         let labels = texts(&scene);
-        for label in ["Lock", "Log out", "Suspend", "Restart", "Power off"] {
+        for label in [t(t("Lock")), t("Log out"), t("Suspend"), t("Restart"), t("Power off")] {
             assert!(
                 labels.contains(&label),
                 "expected power action {label}: {labels:?}"
@@ -2944,7 +2945,7 @@ mod tests {
             "expected Bluetooth device: {labels:?}"
         );
         assert!(
-            labels.contains(&"Connect"),
+            labels.contains(&t("Connect")),
             "expected connect action: {labels:?}"
         );
     }

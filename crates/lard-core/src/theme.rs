@@ -1,5 +1,6 @@
 //! Visual tokens. All values are logical pixels / sRGB.
 
+use crate::i18n::t;
 use crate::color::Color;
 use serde::{Deserialize, Serialize};
 
@@ -71,6 +72,8 @@ pub enum ThemeMode {
     /// Follow the desktop preference (`org.freedesktop.appearance color-scheme`).
     #[default]
     System,
+    /// Derive it from the wallpaper: a bright picture gets the light theme.
+    Auto,
     Light,
     Dark,
 }
@@ -387,7 +390,7 @@ impl Default for LauncherConfig {
             // and the list scrolls, instead of hiding the tail.
             max_results: 64,
             corner_radius: 20.0,
-            placeholder: "Search applications…".into(),
+            placeholder: t("Search applications…").into(),
             idle_timeout_secs: 25,
             show_categories: false,
         }
@@ -477,7 +480,7 @@ pub struct GreeterConfig {
     pub attempts_before_backoff: u32,
     pub max_backoff_secs: u64,
     pub show_power_buttons: bool,
-    /// Add "Suspend" between reboot and power off.
+    /// Add t("Suspend") between reboot and power off.
     pub show_suspend: bool,
     pub default_session: String,
     pub clock_format: String,
@@ -584,17 +587,17 @@ impl ScreensaverEffect {
     pub const ALL: [Self; 4] = [Self::Liquid, Self::Mercury, Self::Aurora, Self::Gas];
 
     #[must_use]
-    pub const fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
-            Self::Liquid => "Liquid",
-            Self::Mercury => "Mercury",
+            Self::Liquid => t("Liquid"),
+            Self::Mercury => t("Mercury"),
             Self::Aurora => "Aurora",
-            Self::Waves => "Waves",
-            Self::Grid => "Grid",
-            Self::Dust => "Dust",
+            Self::Waves => t("Waves"),
+            Self::Grid => t("Grid"),
+            Self::Dust => t(t("Dust")),
             Self::Gas => "Gas",
-            Self::Vortex => "Vortex",
-            Self::Storm => "Storm",
+            Self::Vortex => t("Vortex"),
+            Self::Storm => t("Storm"),
             Self::Tunnel => "Tunnel",
         }
     }

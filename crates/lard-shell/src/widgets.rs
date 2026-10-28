@@ -1,5 +1,6 @@
 //! Shared view helpers (single-threaded, allocation-light).
 
+use lard_core::i18n::t;
 use lard_core::{Color, Rect};
 
 /// Corner of the island a card grows from. While the card inflates the
@@ -243,7 +244,7 @@ pub fn system_monitor(
     process_list(
         scene,
         Rect::new(panel.x, panel.y + 150.0, panel.w, 120.0),
-        "Processes · CPU",
+        t("Processes · CPU"),
         &system.top_cpu,
         config,
         p,
@@ -251,7 +252,7 @@ pub fn system_monitor(
     process_list(
         scene,
         Rect::new(panel.x, panel.y + 278.0, panel.w, 120.0),
-        "Processes · memory",
+        t("Processes · memory"),
         &system.top_mem,
         config,
         p,

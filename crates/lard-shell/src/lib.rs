@@ -888,7 +888,7 @@ impl Shell {
     pub fn set_theme_mode(&mut self, mode: lard_core::theme::ThemeMode) {
         self.config.theme.flatten();
         self.config.theme.mode = mode;
-        self.config.apply_appearance(lard_services::appearance::prefers_dark());
+        self.sync_appearance();
         let dark = self.config.is_dark();
         let published = lard_services::appearance::publish(dark);
         if !published {
@@ -903,8 +903,11 @@ impl Shell {
 
     /// Apply the current mode to a freshly loaded configuration.
     pub fn sync_appearance(&mut self) {
-        self.config
-            .apply_appearance(lard_services::appearance::prefers_dark());
+        let light = wallpaper_is_light(&self.config.theme.wallpaper);
+        self.config.apply_appearance_with(
+            lard_services::appearance::prefers_dark(),
+            light,
+        );
     }
 
     pub fn close_launcher(&mut self) {
@@ -2517,6 +2520,37 @@ fn clock_strings(config: &Config, now: DateTime<Local>) -> (String, String) {
     )
 }
 
+/// Whether the desktop wallpaper is bright enough for a light interface.
+///
+/// A 32x32 thumbnail is enough: the question is whether the picture reads as
+/// light or dark as a whole, not per pixel.
+#[must_use]
+pub fn wallpaper_is_light(path: &str) -> Option<bool> {
+    if path.trim().is_empty() {
+        return None;
+    }
+    let image = image::open(path).ok()?;
+    let small = image
+        .resize_exact(32, 32, image::imageops::FilterType::Triangle)
+        .to_rgba8();
+    let mut luminance = 0.0f32;
+    let mut weight = 0.0f32;
+    for pixel in small.pixels() {
+        let alpha = f32::from(pixel[3]) / 255.0;
+        if alpha <= 0.05 {
+            continue;
+        }
+        let [r, g, b, _] = pixel.0;
+        luminance += (0.2126 * f32::from(r) + 0.7152 * f32::from(g) + 0.0722 * f32::from(b)) / 255.0
+            * alpha;
+        weight += alpha;
+    }
+    if weight <= 0.0 {
+        return None;
+    }
+    Some(luminance / weight > 0.54)
+}
+
 /// Small English date formatter, so the UI does not pull in a localization
 /// database for two strings.
 #[must_use]
@@ -2875,6 +2909,24 @@ mod tests {
         );
         let action = dock.press(Point::new(size.w * 0.5, size.h * 0.5));
         assert!(matches!(action, Some(ShellAction::Spawn(_))));
+    }
+
+    #[test]
+    fn wallpaper_brightness_picks_the_theme() {
+        let dir = std::env::temp_dir();
+        let light = dir.join("lard-wallpaper-light.png");
+        let dark = dir.join("lard-wallpaper-dark.png");
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([246, 243, 238, 255]))
+            .save(&light)
+            .expect("write bright png");
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([10, 12, 16, 255]))
+            .save(&dark)
+            .expect("write dark png");
+        assert_eq!(wallpaper_is_light(light.to_str().unwrap()), Some(true));
+        assert_eq!(wallpaper_is_light(dark.to_str().unwrap()), Some(false));
+        assert_eq!(wallpaper_is_light(""), None);
+        let _ = std::fs::remove_file(light);
+        let _ = std::fs::remove_file(dark);
     }
 
     #[test]

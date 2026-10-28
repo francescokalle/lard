@@ -57,6 +57,7 @@ impl IpcCommand {
             "controls" | "control-center-popover" => Some(Self::Controls),
             "notifications" | "notification-center" => Some(Self::Notifications),
             "theme" | "theme-system" => Some(Self::ThemeMode(lard_core::theme::ThemeMode::System)),
+            "theme-auto" | "auto" => Some(Self::ThemeMode(lard_core::theme::ThemeMode::Auto)),
             "theme-light" | "light" => Some(Self::ThemeMode(lard_core::theme::ThemeMode::Light)),
             "theme-dark" | "dark" => Some(Self::ThemeMode(lard_core::theme::ThemeMode::Dark)),
             "battery" | "battery-panel" => Some(Self::Battery),

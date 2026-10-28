@@ -7,6 +7,7 @@
 pub mod anim;
 pub mod color;
 pub mod config;
+pub mod i18n;
 pub mod desktop;
 pub mod error;
 pub mod geometry;

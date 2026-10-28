@@ -46,17 +46,17 @@ pub struct BatteryState {
 impl BatteryState {
     /// Human readable status, for the battery panel.
     #[must_use]
-    pub const fn label(&self) -> &'static str {
+    pub fn label(&self) -> &'static str {
         match self.status {
-            BatteryStatus::Charging => "Charging",
-            BatteryStatus::Discharging => "Discharging",
-            BatteryStatus::Full => "Full",
-            BatteryStatus::NotCharging => "Paused (external power)",
+            BatteryStatus::Charging => crate::i18n::t("Charging"),
+            BatteryStatus::Discharging => crate::i18n::t("Discharging"),
+            BatteryStatus::Full => crate::i18n::t("Full"),
+            BatteryStatus::NotCharging => crate::i18n::t("Paused (external power)"),
             BatteryStatus::Unknown => {
                 if self.external_power {
-                    "External power"
+                    crate::i18n::t("External power")
                 } else {
-                    "Unknown"
+                    crate::i18n::t("Unknown")
                 }
             }
         }

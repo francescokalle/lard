@@ -7,10 +7,10 @@
 # in the code). Unknown fields are errors, so a typo never passes silently.
 
 [theme]
-# light | dark | system. `system` follows the desktop preference
+# auto | light | dark | system. `auto` picks the theme from the wallpaper, `system` follows the desktop preference
 # (org.freedesktop.appearance color-scheme); switching here publishes the choice
 # to gsettings/GTK so browsers and GTK apps follow.
-mode            = "system"
+mode            = "auto"
 background      = "#17130BF0"   # bar/OSD; alpha < 1 lets the compositor blur show
 surface         = "#241F17F2"
 surface_hover   = "#342B1FFF"

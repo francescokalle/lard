@@ -1,5 +1,6 @@
 //! Volume on-screen display with a spring slide/fade and a self-hiding timer.
 
+use lard_core::i18n::t;
 use lard_core::anim::{Spring, SpringConfig};
 use lard_core::theme::OsdConfig;
 use lard_core::{Rect, Size};
@@ -204,7 +205,7 @@ impl Osd {
         }
         if self.muted && is_volume {
             scene.text_center_y(
-                "audio muted",
+                t("audio muted"),
                 card.x,
                 card.y + 44.0,
                 TextStyle {
