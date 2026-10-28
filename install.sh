@@ -30,6 +30,9 @@ DRY_RUN=0
 UNINSTALL=0
 PURGE=0
 ASSUME_YES=0
+TERMINAL=""
+TERMINAL_ASKED=0
+DO_EXTRAS=1
 BINARY_OVERRIDE=""
 LOG_FILE=""
 UI_TTY=0
@@ -96,6 +99,9 @@ OPTIONS
   --skip-build                use an already built binary
   --binary PATH               use a specific binary
   --force                     overwrite existing config/PAM after a backup
+  --terminal NAME             terminal to install (kitty, foot, alacritty, wezterm,
+                              gnome-terminal, xterm, none); if omitted, asks
+  --no-extras                 do not install the optional tools (clipboard, brightness)
   --no-enable                 do not enable autostart
   --no-pam / --no-config / --no-greeter / --no-docs / --no-systemd
   --uninstall                 uninstall
@@ -142,6 +148,9 @@ while [ "$#" -gt 0 ]; do
         --no-greeter) DO_GREETER=0 ;;
         --no-docs) DO_DOCS=0 ;;
         --no-systemd) DO_SYSTEMD=0 ;;
+        --terminal) need_arg "$@"; TERMINAL="$2"; TERMINAL_ASKED=1; shift ;;
+        --terminal=*) TERMINAL="${1#*=}"; TERMINAL_ASKED=1 ;;
+        --no-extras) DO_EXTRAS=0 ;;
         --no-enable) DO_ENABLE=0 ;;
         --enable) DO_ENABLE=1 ;;
         -y|--yes) ASSUME_YES=1 ;;
@@ -420,6 +429,133 @@ ensure_rust() {
 }
 
 # ---------------------------------------------------------------------------
+# Runtime packages: the compositor, the terminal and the small tools the shell
+# calls into. `niri` is required; the rest is asked once.
+
+# package name for a runtime component in the detected family
+runtime_pkg() {
+    case "$1:$FAMILY" in
+        niri:*) printf '%s\n' niri ;;
+        kitty:*) printf '%s\n' kitty ;;
+        foot:*) printf '%s\n' foot ;;
+        alacritty:*) printf '%s\n' alacritty ;;
+        wezterm:arch) printf '%s\n' wezterm ;;
+        wezterm:debian) printf '%s\n' wezterm ;;
+        wezterm:fedora) printf '%s\n' wezterm ;;
+        wezterm:suse) printf '%s\n' wezterm ;;
+        gnome-terminal:*) printf '%s\n' gnome-terminal ;;
+        xterm:*) printf '%s\n' xterm ;;
+        wl-clipboard:arch) printf '%s\n' wl-clipboard ;;
+        wl-clipboard:debian) printf '%s\n' wl-clipboard ;;
+        wl-clipboard:fedora) printf '%s\n' wl-clipboard ;;
+        wl-clipboard:suse) printf '%s\n' wl-clipboard ;;
+        brightnessctl:arch) printf '%s\n' brightnessctl ;;
+        brightnessctl:debian) printf '%s\n' brightnessctl ;;
+        brightnessctl:fedora) printf '%s\n' brightnessctl ;;
+        brightnessctl:suse) printf '%s\n' brightnessctl ;;
+        awww:*) printf '%s\n' awww ;;
+        *) ;;
+    esac
+}
+
+component_present() {
+    case "$1" in
+        niri) command -v niri >/dev/null 2>&1 ;;
+        kitty|foot|alacritty|wezterm|gnome-terminal|xterm) command -v "$1" >/dev/null 2>&1 ;;
+        wl-clipboard) command -v wl-copy >/dev/null 2>&1 ;;
+        brightnessctl) command -v brightnessctl >/dev/null 2>&1 ;;
+        awww) command -v awww >/dev/null 2>&1 ;;
+        *) return 0 ;;
+    esac
+}
+
+# Interactive menu; reads /dev/tty because with `curl | bash` stdin is the script.
+ask_terminal() {
+    [ "$TERMINAL_ASKED" -eq 1 ] && return 0
+    [ "$DRY_RUN" -eq 1 ] && { TERMINAL="kitty"; return 0; }
+    if [ ! -r /dev/tty ]; then
+        TERMINAL="kitty"
+        return 0
+    fi
+    printf '\n  %s?%s %s\n' "$C_GOLD" "$C_RESET" "Which terminal should be installed?"
+    printf '     %s1)%s kitty (default)   %s2)%s foot   %s3)%s alacritty\n' \
+        "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
+    printf '     %s4)%s wezterm          %s5)%s GNOME Terminal   %s6)%s xterm\n' \
+        "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
+    printf '     %s0)%s none\n' "$C_BOLD" "$C_RESET"
+    printf '  %s[1]%s ' "$C_GREY" "$C_RESET"
+    local answer=""
+    read -r answer < /dev/tty || answer=""
+    case "${answer:-1}" in
+        0) TERMINAL="" ;;
+        2) TERMINAL=foot ;;
+        3) TERMINAL=alacritty ;;
+        4) TERMINAL=wezterm ;;
+        5) TERMINAL=gnome-terminal ;;
+        6) TERMINAL=xterm ;;
+        *) TERMINAL=kitty ;;
+    esac
+    TERMINAL_ASKED=1
+    [ -n "$TERMINAL" ] && ui_ok "terminal" "$TERMINAL"
+    return 0
+}
+
+install_runtime() {
+    detect_family
+    if [ "$DRY_RUN" -eq 0 ] && [ -r /dev/tty ] && [ "$TERMINAL_ASKED" -eq 0 ] \
+        && [ "$EUID" -ne 0 ]; then
+        ask_terminal
+    fi
+    [ -n "$TERMINAL" ] || TERMINAL="kitty"
+    [ "$TERMINAL_ASKED" -eq 0 ] && TERMINAL="kitty"
+    local -a pkgs=()
+    local component pkg
+    # niri: hard requirement
+    if ! component_present niri; then
+        pkgs+=("$(runtime_pkg niri)")
+    else
+        ui_ok "niri" "$(niri --version 2>/dev/null | head -1 || echo installed)"
+    fi
+    if ! component_present "$TERMINAL"; then
+        pkg="$(runtime_pkg "$TERMINAL")"
+        [ -n "$pkg" ] && pkgs+=("$pkg")
+    else
+        ui_ok "terminal" "$TERMINAL already installed"
+    fi
+    if [ "$DO_EXTRAS" -eq 1 ]; then
+        for component in wl-clipboard brightnessctl; do
+            component_present "$component" || pkgs+=("$(runtime_pkg "$component")")
+        done
+    fi
+    if [ "${#pkgs[@]}" -eq 0 ]; then
+        ui_ok "runtime" "nothing else to install"
+        return 0
+    fi
+    local joined
+    joined="$(printf '%s ' "${pkgs[@]}")"
+    joined="${joined% }"
+    if [ "$DRY_RUN" -eq 1 ]; then
+        ui_skip "runtime" "[dry-run] would install: $joined"
+        return 0
+    fi
+    local pm; pm="$(package_manager)"
+    [ -n "$pm" ] || { ui_warn "no package manager: install $joined"; return 0; }
+    sudo_warmup
+    case "$pm" in
+        pacman) run_spin "runtime" as_root pacman -S --needed --noconfirm "${pkgs[@]}" ;;
+        apt-get) run_spin "runtime" as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "${pkgs[@]}" ;;
+        dnf) run_spin "runtime" as_root dnf install -y "${pkgs[@]}" ;;
+        zypper) run_spin "runtime" as_root zypper --non-interactive install "${pkgs[@]}" ;;
+    esac || {
+        ui_warn "could not install: $joined"
+        ui_warn "niri comes from the distribution repository; on Debian it needs trixie or later"
+        ui_warn "(see https://yalter.github.io/niri/Packaging.html)"
+    }
+    component_present niri || ui_warn "niri is still missing: install it before starting LARD"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # Files
 
 install_keep() { # src dst mode label
@@ -594,6 +730,7 @@ do_install() {
 
     sudo_warmup
     install_deps
+    install_runtime
     ensure_cc
     [ "$SKIP_BUILD" -eq 1 ] || ensure_rust
 
@@ -650,6 +787,7 @@ do_install() {
 spawn-at-startup "$PREFIX/bin/lard"
 
 binds {
+    Mod+Return  { spawn "${TERMINAL:-kitty}"; }
     Mod+D       { spawn "$PREFIX/bin/lard" "ipc" "launcher"; }
     Mod+Shift+E { spawn "$PREFIX/bin/lard" "ipc" "control-center"; }
     Mod+Escape  { spawn "$PREFIX/bin/lard" "lock"; }
