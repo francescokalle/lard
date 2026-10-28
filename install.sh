@@ -297,22 +297,22 @@ user_config_path() {
     printf '%s/lard/config.toml' "${XDG_CONFIG_HOME:-$HOME/.config}"
 }
 
+BIN_SRC=""
 build_binary() {
     local out="$SCRIPT_DIR/target/release/lard"
+    BIN_SRC="$out"
     if [ -n "$BINARY_OVERRIDE" ]; then
         [ -x "$BINARY_OVERRIDE" ] || die "binary not executable: $BINARY_OVERRIDE"
-        printf '%s' "$BINARY_OVERRIDE"
+        BIN_SRC="$BINARY_OVERRIDE"
         return 0
     fi
     if [ "$SKIP_BUILD" -eq 1 ]; then
         [ -x "$out" ] || die "--skip-build requested but $out does not exist"
-        printf '%s' "$out"
         return 0
     fi
     [ -f "$SCRIPT_DIR/Cargo.toml" ] || die "no Cargo.toml in $SCRIPT_DIR"
     if [ "$DRY_RUN" -eq 1 ]; then
         ui_skip "build" "[dry-run] would build target/release/lard"
-        printf '%s' "$out"
         return 0
     fi
     local started=$SECONDS
@@ -335,7 +335,6 @@ build_binary() {
     fi
     [ -x "$out" ] || die "build finished but $out does not exist"
     ui_ok "build" "release · $((SECONDS-started))s"
-    printf '%s' "$out"
 }
 
 # ---------------------------------------------------------------------------
@@ -428,8 +427,8 @@ do_install() {
     install_deps
     [ "$SKIP_BUILD" -eq 1 ] || ensure_rust
 
-    local bin_src
-    bin_src="$(build_binary)"
+    build_binary
+    local bin_src="$BIN_SRC"
     if [ "$DRY_RUN" -eq 1 ]; then
         ui_skip "install" "[dry-run] would install $bin_dst"
     else
