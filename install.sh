@@ -2,7 +2,7 @@
 #
 # LARD installer
 #
-#   ./install.sh                 build + install (chiede sudo solo per /etc e /usr/local)
+#   ./install.sh                 build + install + avvio automatico (sudo solo per /etc e /usr/local)
 #   ./install.sh --install-deps  installa prima le dipendenze di build
 #   ./install.sh --niri          aggiunge anche le bind a ~/.config/niri/config.kdl
 #   ./install.sh --user          installa solo per l'utente corrente (~/.local)
