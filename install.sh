@@ -35,6 +35,7 @@ TERMINAL_ASKED=0
 DO_EXTRAS=1
 DO_SETUP=1
 REPAIR=0
+UPDATE=0
 BINARY_OVERRIDE=""
 LOG_FILE=""
 UI_TTY=0
@@ -109,6 +110,8 @@ OPTIONS
   --no-extras                 do not install the optional tools (clipboard, brightness)
   --no-system-setup           do not configure portals/audio/services/autostart beyond LARD
   --repair                    fix an existing installation (keeps the configs)
+  --update                    non-interactive update: keep the user config and the
+                              boot choice, replace the managed files, restart the bar
   --no-enable                 do not enable autostart
   --no-pam / --no-config / --no-greeter / --no-docs / --no-systemd
   --uninstall                 uninstall
@@ -160,6 +163,7 @@ while [ "$#" -gt 0 ]; do
         --no-extras) DO_EXTRAS=0 ;;
         --no-system-setup) DO_SETUP=0 ;;
         --repair) REPAIR=1; FORCE=1 ;;
+        --update) UPDATE=1; REPAIR=1; FORCE=1; ASSUME_YES=1 ;;
         --no-enable) DO_ENABLE=0 ;;
         --enable) DO_ENABLE=1 ;;
         -y|--yes) ASSUME_YES=1 ;;
@@ -588,6 +592,17 @@ install_wallpaper_daemon() {
 
 # The shortcuts used on the development machine, shipped with the sources and
 # installed on every target (with a backup and without duplicating the include).
+# Install a managed file, backing it up only when its content actually changes:
+# an update must not leave a trail of identical .bak files.
+install_managed() { # src dst mode
+    local src="$1" dst="$2" mode="$3"
+    if [ -f "$dst" ] && cmp -s "$src" "$dst"; then
+        return 0
+    fi
+    [ -f "$dst" ] && cp -a "$dst" "$dst.bak-$(date +%Y%m%d%H%M%S)"
+    install -Dm"$mode" "$src" "$dst"
+}
+
 install_terminal_config() {
     local term
     term="$(basename "${TERMINAL:-kitty}")"
@@ -606,10 +621,42 @@ install_terminal_config() {
     for f in "$SCRIPT_DIR"/config/kitty/*.conf; do
         [ -f "$f" ] || continue
         name="$(basename "$f")"
-        [ -f "$dir/$name" ] && cp -a "$dir/$name" "$dir/$name.bak-$(date +%Y%m%d%H%M%S)"
-        install -Dm644 "$f" "$dir/$name"
+        install_managed "$f" "$dir/$name" 644
     done
     ui_ok "terminal" "kitty.conf installed (semi-transparent, blur, tabs)"
+}
+
+# The wallpaper folder used to be called omarchy-themes. Rename it (and the
+# niri includes that point at it) so an update does not leave the old name
+# behind. The shell also accepts the legacy path, so a half-finished migration
+# never leaves an empty picker.
+migrate_wallpaper_dir() {
+    local base="${XDG_CONFIG_HOME:-$HOME/.config}"
+    local old="$base/niri/omarchy-themes" new="$base/niri/lard-themes"
+    local cfg
+    if [ -d "$old" ] && [ ! -d "$new" ]; then
+        if [ "$DRY_RUN" -eq 1 ]; then
+            ui_skip "wallpapers" "[dry-run] would rename omarchy-themes to lard-themes"
+        elif mv "$old" "$new"; then
+            ui_ok "wallpapers" "renamed ~/.config/niri/omarchy-themes -> lard-themes"
+        else
+            ui_warn "cannot rename $old to $new"
+        fi
+    elif [ -d "$old" ] && [ -d "$new" ]; then
+        ui_skip "wallpapers" "both omarchy-themes and lard-themes exist: left as is"
+    fi
+    for cfg in "$base/niri/config.kdl" "$base/niri/config-lard.kdl"; do
+        [ -f "$cfg" ] || continue
+        grep -q 'omarchy-themes/' "$cfg" 2>/dev/null || continue
+        if [ "$DRY_RUN" -eq 1 ]; then
+            ui_skip "wallpapers" "[dry-run] would point $cfg at lard-themes/"
+            continue
+        fi
+        cp -a "$cfg" "$cfg.bak-$(date +%Y%m%d%H%M%S)"
+        sed -i 's|omarchy-themes/|lard-themes/|g' "$cfg" \
+            && ui_ok "wallpapers" "includes updated in $cfg" \
+            || ui_warn "cannot update the includes in $cfg"
+    done
 }
 
 install_niri_config() {
@@ -628,14 +675,12 @@ install_niri_config() {
     for f in "$src"/lard/*.kdl; do
         [ -f "$f" ] || continue
         name="$(basename "$f")"
-        [ -f "$dir/lard/$name" ] && cp -a "$dir/lard/$name" "$dir/lard/$name.bak-$(date +%Y%m%d%H%M%S)"
-        install -Dm644 "$f" "$dir/lard/$name"
+        install_managed "$f" "$dir/lard/$name" 644
     done
     if [ -n "${TERMINAL:-}" ] && [ "$TERMINAL" != "kitty" ]; then
         sed -i "s|spawn \"kitty\"|spawn \"$TERMINAL\"|g" "$dir/lard/binds.kdl"
     fi
-    [ -f "$cfg" ] && cp -a "$cfg" "$cfg.bak-$(date +%Y%m%d%H%M%S)"
-    install -Dm644 "$src/config-lard.kdl" "$cfg"
+    install_managed "$src/config-lard.kdl" "$cfg" 644
     # A config error here is a black screen after login: refuse to activate it.
     if have niri && ! niri validate -c "$cfg" >>"$LOG_FILE" 2>&1; then
         mv -f "$cfg" "$cfg.invalid"
@@ -770,8 +815,9 @@ setup_system() {
 
 install_runtime() {
     detect_family
+    [ "$UPDATE" -eq 1 ] && detect_terminal
     if [ "$DRY_RUN" -eq 0 ] && [ -r /dev/tty ] && [ "$TERMINAL_ASKED" -eq 0 ] \
-        && [ "$EUID" -ne 0 ]; then
+        && [ "$EUID" -ne 0 ] && [ "$UPDATE" -eq 0 ]; then
         ask_terminal
     fi
     [ -n "$TERMINAL" ] || TERMINAL="kitty"
@@ -922,6 +968,10 @@ build_binary() {
 BOOT_MODE="${LARD_BOOT:-}"
 
 ask_boot() {
+    if [ "$UPDATE" -eq 1 ] && [ -z "$BOOT_MODE" ]; then
+        detect_boot_mode
+        return 0
+    fi
     [ -n "$BOOT_MODE" ] && return 0
     if [ "$DRY_RUN" -eq 1 ] || [ ! -r /dev/tty ]; then BOOT_MODE=greeter; return 0; fi
     printf '\n  %s?%s %s\n' "$C_GOLD" "$C_RESET" "How should the session start at boot?"
@@ -937,6 +987,32 @@ ask_boot() {
         *) BOOT_MODE=greeter ;;
     esac
     return 0
+}
+
+# Which boot arrangement is already installed? Used by --update so an update
+# never changes the login setup behind the user's back.
+detect_boot_mode() {
+    if [ -f /etc/systemd/system/getty@tty1.service.d/autologin.conf ]; then
+        BOOT_MODE=tty
+    elif [ -f /etc/greetd/config.toml ] && grep -q '/etc/lard/greeter.kdl' /etc/greetd/config.toml 2>/dev/null; then
+        BOOT_MODE=greeter
+    else
+        BOOT_MODE=none
+    fi
+}
+
+# Keep the terminal the user picked the first time instead of resetting it to
+# kitty on every update.
+detect_terminal() {
+    local binds="${XDG_CONFIG_HOME:-$HOME/.config}/niri/lard/binds.kdl"
+    local term=""
+    if [ -f "$binds" ]; then
+        term="$(sed -n '/Mod+T /{s/.*spawn "\([^"]*\)".*/\1/p;q}' "$binds")"
+    fi
+    if [ -n "$term" ]; then
+        TERMINAL="$term"
+        TERMINAL_ASKED=1
+    fi
 }
 
 # Remove the tty1 stanza written by older versions (and by tty mode).
@@ -1124,6 +1200,10 @@ install_boot() {
         # A machine whose default target is multi-user.target never starts the
         # display manager: it boots to a text login even with greetd enabled.
         as_root systemctl set-default graphical.target >>"$LOG_FILE" 2>&1 || true
+        if [ "$UPDATE" -eq 1 ]; then
+            ui_ok "boot" "greetd configuration refreshed (the new greeter is used at the next login)"
+            return 0
+        fi
         as_root systemctl restart greetd.service >>"$LOG_FILE" 2>&1 || true
         # "is-active" is not enough: greetd stays active while the greeter
         # session crash-loops. Success means a greeter process that lives for a
@@ -1269,7 +1349,9 @@ do_install() {
     unit_file="$DESTDIR$PREFIX/lib/systemd/user/lard.service"
 
     ui_header
-    if [ "$REPAIR" -eq 0 ] && [ "$DRY_RUN" -eq 0 ] && [ "$USER_MODE" -eq 0 ] \
+    if [ "$UPDATE" -eq 1 ]; then
+        ui_step "update" "keeping the configuration and the boot setup"
+    elif [ "$REPAIR" -eq 0 ] && [ "$DRY_RUN" -eq 0 ] && [ "$USER_MODE" -eq 0 ] \
         && [ -x "$PREFIX/bin/lard" ] && [ -r /dev/tty ]; then
         printf '  %s!%s LARD is already installed (%s).\n\n' "$C_GOLD" "$C_RESET" "$PREFIX/bin/lard"
         printf '     %s1)%s Repair — fix everything, keep my configuration (default)\n' "$C_BOLD" "$C_RESET"
@@ -1371,6 +1453,7 @@ EOF
     fi
 
     install_default_wallpaper
+    migrate_wallpaper_dir
     install_niri_config
     install_terminal_config
     enable_autostart
@@ -1387,6 +1470,15 @@ EOF
 
     if [ "$DRY_RUN" -eq 1 ]; then
         printf '\n  %s· dry run: nothing was changed%s\n\n' "$C_GREY" "$C_RESET"
+        return 0
+    fi
+    if [ "$UPDATE" -eq 1 ]; then
+        printf '\n  %s✓ LARD updated%s\n' "$C_GREEN$C_BOLD" "$C_RESET"
+        if command -v systemctl >/dev/null 2>&1 \
+            && systemctl --user is-active --quiet lard.service 2>/dev/null; then
+            ( sleep 1; systemctl --user restart lard.service ) >/dev/null 2>&1 &
+            printf '  %sthe bar restarts with the new binary%s\n\n' "$C_GREY" "$C_RESET"
+        fi
         return 0
     fi
     printf '\n  %s✓ LARD installed%s\n' "$C_GREEN$C_BOLD" "$C_RESET"

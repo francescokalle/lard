@@ -2,3 +2,4 @@
 *.log
 *.bak
 .DS_Store
+/site/repo/arch/*/

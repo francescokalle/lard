@@ -76,6 +76,32 @@ requires an explicit choice of host compositor: the installer ships the assets b
 **does not modify** `/etc/greetd/config.toml`, to avoid lockouts. The procedure is
 in [docs/greetd/config.toml](docs/greetd/config.toml).
 
+## Update
+
+```bash
+lard update              # fetch the latest version and reinstall
+lard update --dry-run    # show what it would do
+lard update --source     # always rebuild from source
+```
+
+`lard update` delegates to the system package manager when LARD was installed
+from a package (`pacman -Qo /usr/bin/lard`), otherwise it runs the official
+installer with `--update`: the configuration, the PAM service and the boot
+choice are kept, the managed files are replaced and the bar restarts with the
+new binary.
+
+LARD is also packaged for Arch (`packaging/arch`, AUR `lard-git`). With the
+package repository configured, a normal `pacman -Syu` updates it:
+
+```ini
+[lard]
+SigLevel = Optional TrustAll
+Server = https://lard.francescocallegaro.com/repo/arch/$arch
+```
+
+See [docs/UPDATING.md](docs/UPDATING.md) for both channels and for how to
+publish a release.
+
 ## LARD as the default shell
 
 LARD is meant to replace DankMaterialShell: niri, greetd and the desktop stay

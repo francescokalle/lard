@@ -1,0 +1,45 @@
+# Maintainer: LARD <lard@francescocallegaro.com>
+pkgname=lard
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Light as rust dust — a native Wayland shell for niri'
+arch=('x86_64' 'aarch64')
+url='https://lard.francescocallegaro.com'
+license=('MIT')
+depends=('niri' 'wayland' 'libxkbcommon' 'pam' 'fontconfig' 'vulkan-icd-loader'
+         'wl-clipboard' 'brightnessctl')
+makedepends=('cargo' 'rust' 'pkgconf')
+optdepends=(
+    'kitty: default terminal (semi-transparent config in /usr/share/lard/kitty)'
+    'awww: animated wallpaper daemon'
+    'greetd: LARD login greeter'
+    'xdg-desktop-portal-gtk: file pickers and portals'
+)
+source=("$pkgname-$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+    cd "$pkgname-$pkgver"
+    cargo build --release --locked
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    install -Dm755 target/release/lard "$pkgdir/usr/bin/lard"
+
+    # The unit in the repository points at /usr/local (the script install);
+    # the package installs to /usr/bin.
+    install -Dm644 docs/systemd/lard.service "$pkgdir/usr/lib/systemd/user/lard.service"
+    sed -i 's|/usr/local/bin/lard|/usr/bin/lard|g' "$pkgdir/usr/lib/systemd/user/lard.service"
+
+    install -Dm644 config/config.toml "$pkgdir/etc/lard/config.toml"
+    install -Dm644 docs/pam.d/lard-greeter "$pkgdir/etc/pam.d/lard-greeter"
+
+    install -d "$pkgdir/usr/share/lard"
+    cp -a config/niri config/kitty "$pkgdir/usr/share/lard/"
+    install -Dm644 docs/greeter-lard.kdl \
+        "$pkgdir/usr/share/lard/greetd/greeter-lard.kdl"
+
+    install -Dm644 README.md "$pkgdir/usr/share/doc/lard/README.md"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/lard/LICENSE"
+}

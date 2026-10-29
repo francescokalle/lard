@@ -1,4 +1,4 @@
-//! Wallpaper carousel: scans the omarchy wallpaper packages lazily, shows real
+//! Wallpaper carousel: scans the LARD wallpaper folder lazily, shows real
 //! thumbnails and derives a tonal accent per wallpaper.
 
 use lard_core::anim::{Spring, SpringConfig};
@@ -58,7 +58,17 @@ pub fn default_dir() -> PathBuf {
             let home = std::env::var_os("HOME")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("."));
-            home.join(".config/niri/omarchy-themes/wallpapers")
+            let base = home.join(".config/niri");
+            let current = base.join("lard-themes/wallpapers");
+            // Older installs kept the wallpapers under the omarchy name; the
+            // installer migrates the folder, this keeps them visible until the
+            // next update even if it has not run yet.
+            let legacy = base.join("omarchy-themes/wallpapers");
+            if current.is_dir() || !legacy.is_dir() {
+                current
+            } else {
+                legacy
+            }
         })
 }
 
