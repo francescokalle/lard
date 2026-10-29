@@ -99,6 +99,8 @@ pub enum SettingsAction {
     NiriOutputModeNext,
     /// Pick the next output scale.
     NiriOutputScaleNext,
+    /// Move the selected output by (dx, dy) pixels.
+    NiriOutputPositionMove(i32, i32),
     /// Choose the screensaver effect by index into `ScreensaverEffect::ALL`.
     ScreensaverEffect(usize),
     /// Cycle the lock screen background (gradient / wallpaper).
@@ -364,6 +366,41 @@ impl SettingsView {
         let scale = SCALES[(index + 1) % SCALES.len()];
         self.niri_config(&dir, Some(&output))
             .set(NiriSetting::OutputScale, NiriValue::Float(scale));
+    }
+
+    /// Move the selected output by (dx, dy) pixels. Writes to the niri config
+    /// and applies the change live via `niri msg`.
+    pub fn niri_output_position_move(&mut self, dx: i32, dy: i32) {
+        let Some(output) = self.output.clone() else {
+            return;
+        };
+        let dir = crate::niri_config::niri_config_dir();
+        let config = self.niri_config(&dir, Some(&output));
+        let current_x = config
+            .value(NiriSetting::OutputPositionX)
+            .and_then(NiriValue::as_int)
+            .unwrap_or(0) as i32;
+        let current_y = config
+            .value(NiriSetting::OutputPositionY)
+            .and_then(NiriValue::as_int)
+            .unwrap_or(0) as i32;
+        let new_x = current_x + dx;
+        let new_y = current_y + dy;
+        self.niri_config(&dir, Some(&output))
+            .set(NiriSetting::OutputPositionX, NiriValue::Int(new_x as i128));
+        self.niri_config(&dir, Some(&output))
+            .set(NiriSetting::OutputPositionY, NiriValue::Int(new_y as i128));
+        // Apply live.
+        let _ = std::process::Command::new("niri")
+            .args([
+                "msg",
+                "output",
+                &output,
+                "position",
+                &new_x.to_string(),
+                &new_y.to_string(),
+            ])
+            .status();
     }
 
     /// The focused output, the one the form edits.
@@ -812,6 +849,74 @@ impl SettingsView {
             cursor_y += 24.0;
         }
         cursor_y += 12.0;
+
+        // --- position of the selected monitor ---
+        self.niri_section(scene, content.x, cursor_y, t("Position"), config, p);
+        cursor_y += 22.0;
+        let pos_x = model
+            .value(NiriSetting::OutputPositionX)
+            .and_then(NiriValue::as_int)
+            .unwrap_or(0) as i32;
+        let pos_y = model
+            .value(NiriSetting::OutputPositionY)
+            .and_then(NiriValue::as_int)
+            .unwrap_or(0) as i32;
+        scene.text(
+            &format!("{}: ({}, {})", t("Current"), pos_x, pos_y),
+            Point::new(content.x + 12.0, cursor_y),
+            TextStyle {
+                size: fonts.size_small,
+                ..Default::default()
+            },
+            theme.text_muted.scale_alpha(0.9 * p),
+        );
+        cursor_y += 20.0;
+        let btn = 40.0;
+        let gap = 6.0;
+        let base_x = content.x + (content.w - (btn * 3.0 + gap * 2.0)) * 0.5;
+        let up = Rect::new(base_x + btn + gap, cursor_y, btn, btn);
+        let left = Rect::new(base_x, cursor_y + btn + gap, btn, btn);
+        let down = Rect::new(base_x + btn + gap, cursor_y + btn + gap, btn, btn);
+        let right = Rect::new(base_x + (btn + gap) * 2.0, cursor_y + btn + gap, btn, btn);
+        for (rect, label, dx, dy) in [
+            (up, "↑", 0, -100),
+            (left, "←", -100, 0),
+            (down, "↓", 0, 100),
+            (right, "→", 100, 0),
+        ] {
+            let hovered = self.cursor.is_some_and(|c| rect.contains(c));
+            scene.rect(
+                rect,
+                theme
+                    .surface_hover
+                    .scale_alpha((if hovered { 0.9 } else { 0.5 }) * p),
+                theme.radius.control(),
+            );
+            scene.text_center_y(
+                label,
+                rect.center().x,
+                rect.center().y,
+                TextStyle {
+                    size: fonts.size_body,
+                    align: TextAlign::Center,
+                    ..Default::default()
+                },
+                theme.text.scale_alpha(0.92 * p),
+            );
+            self.hits
+                .push((rect, SettingsAction::NiriOutputPositionMove(dx, dy)));
+        }
+        cursor_y += btn * 2.0 + gap + 8.0;
+        scene.text(
+            "Moves the selected monitor by 100 px. Save to persist.",
+            Point::new(content.x + 12.0, cursor_y),
+            TextStyle {
+                size: fonts.size_small - 1.0,
+                ..Default::default()
+            },
+            theme.text_muted.scale_alpha(0.7 * p),
+        );
+        cursor_y += 20.0;
         }
 
         if matches!(page, NiriPage::Windows) {

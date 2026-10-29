@@ -75,6 +75,8 @@ pub enum NiriSetting {
     StrutLeft,
     OutputMode,
     OutputScale,
+    OutputPositionX,
+    OutputPositionY,
 }
 
 impl NiriSetting {
@@ -99,6 +101,8 @@ impl NiriSetting {
             Self::StrutLeft => "Reserved space on the left",
             Self::OutputMode => "Screen resolution",
             Self::OutputScale => "Screen scale",
+            Self::OutputPositionX => "Position X",
+            Self::OutputPositionY => "Position Y",
         }
     }
 
@@ -123,6 +127,7 @@ impl NiriSetting {
             Self::StrutLeft => &["layout", "struts", "left"],
             Self::OutputMode => &["output", "mode"],
             Self::OutputScale => &["output", "scale"],
+            Self::OutputPositionX | Self::OutputPositionY => &["output", "position"],
         }
     }
 
@@ -130,7 +135,7 @@ impl NiriSetting {
     #[must_use]
     pub fn preferred_file(self) -> &'static str {
         match self {
-            Self::OutputMode | Self::OutputScale => "config.kdl",
+            Self::OutputMode | Self::OutputScale | Self::OutputPositionX | Self::OutputPositionY => "config.kdl",
             _ => "lard/layout.kdl",
         }
     }
@@ -467,6 +472,34 @@ impl NiriConfig {
                         self.origins
                             .insert(NiriSetting::OutputScale, doc.path.clone());
                     }
+                    if let Some(pos) = node.children().and_then(|c| c.get("position")) {
+                        for entry in pos.entries() {
+                            let name = entry.name().map(|n| n.value()).unwrap_or("");
+                            let val = match entry.value() {
+                                KdlValue::Integer(v) => *v as i64,
+                                _ => 0,
+                            };
+                            if name == "x" {
+                                self.values.insert(
+                                    NiriSetting::OutputPositionX,
+                                    NiriValue::Int(val as i128),
+                                );
+                                self.origins.insert(
+                                    NiriSetting::OutputPositionX,
+                                    doc.path.clone(),
+                                );
+                            } else if name == "y" {
+                                self.values.insert(
+                                    NiriSetting::OutputPositionY,
+                                    NiriValue::Int(val as i128),
+                                );
+                                self.origins.insert(
+                                    NiriSetting::OutputPositionY,
+                                    doc.path.clone(),
+                                );
+                            }
+                        }
+                    }
                     break;
                 }
             }
@@ -495,6 +528,41 @@ impl NiriConfig {
             };
             if setting.path()[0] == "output" {
                 if self.output.is_none() {
+                    continue;
+                }
+                // Position is a node with x/y properties, handled specially.
+                if setting == NiriSetting::OutputPositionX
+                    || setting == NiriSetting::OutputPositionY
+                {
+                    let output_name = self.output.clone().unwrap_or_default();
+                    let x = if setting == NiriSetting::OutputPositionX {
+                        match value {
+                            NiriValue::Int(v) => v as i32,
+                            _ => 0,
+                        }
+                    } else {
+                        self.values
+                            .get(&NiriSetting::OutputPositionX)
+                            .and_then(NiriValue::as_int)
+                            .unwrap_or(0) as i32
+                    };
+                    let y = if setting == NiriSetting::OutputPositionY {
+                        match value {
+                            NiriValue::Int(v) => v as i32,
+                            _ => 0,
+                        }
+                    } else {
+                        self.values
+                            .get(&NiriSetting::OutputPositionY)
+                            .and_then(NiriValue::as_int)
+                            .unwrap_or(0) as i32
+                    };
+                    if let Some(text) =
+                        set_position_in_text(&doc.text, &output_name, x, y)
+                    {
+                        doc.text = text;
+                        doc.dirty = true;
+                    }
                     continue;
                 }
                 let key = if matches!(value, NiriValue::Text(_)) {
@@ -529,6 +597,49 @@ fn value_text(value: &NiriValue) -> String {
         NiriValue::Bool(flag) => flag.to_string(),
         NiriValue::Text(text) => format!("\"{text}\""),
     }
+}
+
+/// Insert or update the `position x=.. y=..` line inside the output block
+/// named `output`. Returns the new document text.
+fn set_position_in_text(text: &str, output: &str, x: i32, y: i32) -> Option<String> {
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    // Find the output block for this monitor.
+    let mut start_idx = None;
+    for (i, line) in lines.iter().enumerate() {
+        let t = line.trim();
+        if t.starts_with("output ") && t.contains(output) {
+            start_idx = Some(i);
+            break;
+        }
+    }
+    let start = start_idx?;
+    // Find the closing brace.
+    let mut end_idx = None;
+    for (i, line) in lines[start + 1..].iter().enumerate() {
+        if line.trim() == "}" {
+            end_idx = Some(start + 1 + i);
+            break;
+        }
+    }
+    let end = end_idx.unwrap_or(lines.len());
+
+    // Find an existing position line.
+    let mut pos_idx = None;
+    for i in (start + 1)..end {
+        if lines[i].trim().starts_with("position") {
+            pos_idx = Some(i);
+            break;
+        }
+    }
+    let indent = "    ";
+    let new_line = format!("{indent}position x={x} y={y}\n");
+    let mut out: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+    if let Some(idx) = pos_idx {
+        out[idx] = new_line;
+    } else {
+        out.insert(end, new_line);
+    }
+    Some(out.join(""))
 }
 
 /// Patch the value of `key` inside the blocks of `path`, leaving the rest of

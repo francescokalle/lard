@@ -1999,6 +1999,10 @@ impl Shell {
                 self.settings.niri_output_scale_next();
                 self.dirty = true;
             }
+            SettingsAction::NiriOutputPositionMove(dx, dy) => {
+                self.settings.niri_output_position_move(dx, dy);
+                self.dirty = true;
+            }
             SettingsAction::SaveNiri => {
                 self.settings_save_niri();
             }
