@@ -145,10 +145,12 @@ accent_glow = "#8C6A2A"
 enabled = true
 # Idle minutes before the entrance (1-120).
 idle_minutes = 5
-# liquid | mercury | aurora
-effect = "liquid"
-# Different scene and composition on every entrance (the arrows switch them).
-random = true
+# aurora | liquid | mercury | gas
+# Aurora is the calm default: drifting curtains of light, no metaballs.
+effect = "aurora"
+# Set true for a different scene and composition on every entrance
+# (the arrow keys always switch scene).
+random = false
 # Include the scenes written in ~/.config/lard/scenes/*.rhai.
 script_scenes = true
 # Burn-in duration on enter/exit (300-2500 ms).

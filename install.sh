@@ -41,7 +41,7 @@ LOG_FILE=""
 UI_TTY=0
 # Bump with every installer change: the first line of the TUI shows it, so a
 # stale downloaded copy is obvious at a glance.
-LARD_INSTALLER_VERSION="2026-10-29.3"
+LARD_INSTALLER_VERSION="2026-10-29.4"
 
 # ---------------------------------------------------------------------------
 # Output: a small TUI when stdout is a terminal, plain lines otherwise.
@@ -626,6 +626,43 @@ install_terminal_config() {
     ui_ok "terminal" "kitty.conf installed (semi-transparent, blur, tabs)"
 }
 
+# Installations made before this release shipped the liquid metaballs as the
+# default screensaver scene and the procedural PNG as the default wallpaper.
+# Move the untouched configs to the new defaults; anything the user customised
+# is left exactly as it is.
+migrate_defaults() {
+    local cfg="${XDG_CONFIG_HOME:-$HOME/.config}/lard/config.toml"
+    [ -f "$cfg" ] || return 0
+    local effect random dust wp
+    effect="$(sed -n 's/^effect *= *"\(.*\)"/\1/p' "$cfg" | head -1)"
+    random="$(sed -n 's/^random *= *\(.*\)/\1/p' "$cfg" | head -1)"
+    dust="$(sed -n 's/^dust *= *\(.*\)/\1/p' "$cfg" | head -1)"
+    if [ "$effect" = "liquid" ] && [ "$random" = "true" ] && [ "$dust" = "0.35" ]; then
+        if [ "$DRY_RUN" -eq 1 ]; then
+            ui_skip "screensaver" "[dry-run] would move the untouched default to aurora"
+        else
+            cp -a "$cfg" "$cfg.bak-$(date +%Y%m%d%H%M%S)"
+            sed -i 's/^effect *= *"liquid"/effect = "aurora"/; s/^random *= *true/random = false/' "$cfg"
+            ui_ok "screensaver" "untouched default switched to aurora, no more metaballs"
+            command -v lard >/dev/null 2>&1 && lard ipc reload >/dev/null 2>&1 || true
+        fi
+    fi
+    local old="$DESTDIR$PREFIX/share/lard/wallpapers/lard-default.png"
+    local new="$DESTDIR$PREFIX/share/lard/wallpapers/lard-default.jpg"
+    wp="$(sed -n 's/^wallpaper *= *"\(.*\)"/\1/p' "$cfg" | head -1)"
+    if [ "$wp" = "$old" ]; then
+        if [ "$DRY_RUN" -eq 1 ]; then
+            ui_skip "wallpaper" "[dry-run] would switch the old default PNG to the new photo"
+        elif [ -f "$new" ]; then
+            cp -a "$cfg" "$cfg.bak-$(date +%Y%m%d%H%M%S)"
+            sed -i "s|^wallpaper *= *\"$old\"|wallpaper = \"$new\"|" "$cfg"
+            command -v awww >/dev/null 2>&1 && awww img "$new" --transition-type fade >/dev/null 2>&1 || true
+            ui_ok "wallpaper" "default switched to lard-default.jpg"
+            command -v lard >/dev/null 2>&1 && lard ipc reload >/dev/null 2>&1 || true
+        fi
+    fi
+}
+
 # The wallpaper folder used to be called omarchy-themes. Rename it (and the
 # niri includes that point at it) so an update does not leave the old name
 # behind. The shell also accepts the legacy path, so a half-finished migration
@@ -644,6 +681,24 @@ migrate_wallpaper_dir() {
         fi
     elif [ -d "$old" ] && [ -d "$new" ]; then
         ui_skip "wallpapers" "both omarchy-themes and lard-themes exist: left as is"
+    fi
+    # The chosen wallpaper is stored as an absolute path: it must follow the
+    # folder, or the next login finds no file and falls back to a plain color.
+    local ucfg="$base/lard/config.toml"
+    if [ -f "$ucfg" ] && grep -q 'omarchy-themes/' "$ucfg" 2>/dev/null; then
+        if [ "$DRY_RUN" -eq 1 ]; then
+            ui_skip "wallpapers" "[dry-run] would fix the wallpaper path in $ucfg"
+        else
+            cp -a "$ucfg" "$ucfg.bak-$(date +%Y%m%d%H%M%S)"
+            sed -i 's|omarchy-themes/|lard-themes/|g' "$ucfg"
+            ui_ok "wallpapers" "wallpaper path updated in $ucfg"
+            local wp
+            wp="$(sed -n 's/^wallpaper *= *"\(.*\)"/\1/p' "$ucfg" | head -1)"
+            if [ -n "$wp" ] && [ -f "$wp" ] && command -v awww >/dev/null 2>&1; then
+                awww img "$wp" --transition-type fade >/dev/null 2>&1 || true
+            fi
+            command -v lard >/dev/null 2>&1 && lard ipc reload >/dev/null 2>&1 || true
+        fi
     fi
     for cfg in "$base/niri/config.kdl" "$base/niri/config-lard.kdl"; do
         [ -f "$cfg" ] || continue
@@ -1238,14 +1293,20 @@ install_boot() {
 # Default wallpaper (CC0, shipped with the sources)
 
 install_default_wallpaper() {
-    local src="$SCRIPT_DIR/assets/wallpapers/lard-default.png"
+    # The base wallpaper is the water photo; the procedural CC0 PNG stays as a
+    # fallback for trees that predate it.
+    local src="$SCRIPT_DIR/assets/wallpapers/lard-default.jpg"
+    [ -f "$src" ] || src="$SCRIPT_DIR/assets/wallpapers/lard-default.png"
     [ -f "$src" ] || return 0
     if [ "$DRY_RUN" -eq 1 ]; then
         ui_skip "wallpaper" "[dry-run] would install the CC0 default wallpaper"
         return 0
     fi
-    local dst="$DESTDIR$PREFIX/share/lard/wallpapers/lard-default.png"
+    local name; name="$(basename "$src")"
+    local dst="$DESTDIR$PREFIX/share/lard/wallpapers/$name"
     as_root install -Dm644 "$src" "$dst"
+    [ -f "$SCRIPT_DIR/assets/wallpapers/LICENSE" ] \
+        && as_root install -Dm644 "$SCRIPT_DIR/assets/wallpapers/LICENSE" "$DESTDIR$PREFIX/share/lard/wallpapers/LICENSE"
     [ -n "$DESTDIR" ] && { ui_ok "wallpaper" "$dst"; return 0; }
     # Point the user configuration at it when no wallpaper was chosen yet.
     local cfg; cfg="$(user_config_path)"
@@ -1454,6 +1515,7 @@ EOF
 
     install_default_wallpaper
     migrate_wallpaper_dir
+    migrate_defaults
     install_niri_config
     install_terminal_config
     enable_autostart

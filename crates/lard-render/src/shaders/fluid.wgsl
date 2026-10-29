@@ -372,7 +372,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let body_luma = max(max(body.r, body.g), body.b);
     let start = 0.86 - progress * 1.10;
     let appear = smoothstep(start, start + 0.18, body_luma) * smoothstep(0.0, 0.02, progress);
-    let body_fill = smoothstep(0.06, 0.45, progress);
+    // The bodies wait for the room: they used to appear while the backdrop was
+    // still transparent, which read as liquid balls floating over the desktop.
+    let body_fill = smoothstep(0.18, 0.55, progress);
     let glow = 1.0 + (1.0 - body_fill) * 1.65;
     let body_alpha = body.a * appear * body_fill;
     var body_rgb = body.rgb * appear * glow;
@@ -380,8 +382,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // what makes them look like they are burning into the screen.
     body_rgb += body.rgb * appear * (1.0 - body_fill) * 0.9 * max(0.0, 1.0 - body_alpha);
 
-    // The room closes in last, under the objects.
-    let room_alpha = smoothstep(0.50, 1.0, progress);
+    // The room comes first: an opaque backdrop from the very first frames, so
+    // the desktop behind (and its wallpaper) never shows through the shapes.
+    let room_alpha = smoothstep(0.0, 0.26, progress);
 
 
     let out_alpha = body_alpha + room_alpha * (1.0 - body_alpha);
