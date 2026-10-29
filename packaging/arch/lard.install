@@ -1,0 +1,17 @@
+# The script installer puts LARD in /usr/local, which shadows /usr/bin in PATH.
+# When the package takes over, remove that copy so `lard` is the packaged
+# binary and the systemd user unit comes from /usr/lib.
+_remove_script_install() {
+    if [ -e /usr/local/bin/lard ] || [ -e /usr/local/lib/systemd/user/lard.service ]; then
+        echo ">>> removing the previous script install from /usr/local"
+        rm -f /usr/local/bin/lard /usr/local/lib/systemd/user/lard.service
+    fi
+    cat <<'MSG'
+>>> Restart the shell to use the packaged binary:
+      systemctl --user daemon-reload
+      systemctl --user restart lard.service
+MSG
+}
+
+post_install() { _remove_script_install; }
+post_upgrade() { _remove_script_install; }

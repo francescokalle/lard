@@ -37,7 +37,7 @@ else
 fi
 
 echo "==> build lard-$VER"
-cp "$ROOT/packaging/arch/PKGBUILD" "$WORK/PKGBUILD"
+cp "$ROOT/packaging/arch/PKGBUILD" "$ROOT/packaging/arch/lard.install" "$WORK/"
 sed -i "s/^pkgver=.*/pkgver=$VER/" "$WORK/PKGBUILD"
 # Reuse the release binary already built in the tree (same source) instead of
 # compiling a second time inside makepkg. That binary is what the running shell

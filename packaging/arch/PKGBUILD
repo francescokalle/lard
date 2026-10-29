@@ -1,7 +1,7 @@
 # Maintainer: LARD <lard@francescocallegaro.com>
 pkgname=lard
 pkgver=0.1.0
-pkgrel=1
+pkgrel=2
 pkgdesc='Light as rust dust — a native Wayland shell for niri'
 arch=('x86_64' 'aarch64')
 url='https://lard.francescocallegaro.com'
@@ -15,6 +15,7 @@ optdepends=(
     'greetd: LARD login greeter'
     'xdg-desktop-portal-gtk: file pickers and portals'
 )
+install=lard.install
 source=("$pkgname-$pkgver.tar.gz")
 sha256sums=('SKIP')
 

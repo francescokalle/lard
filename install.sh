@@ -41,7 +41,7 @@ LOG_FILE=""
 UI_TTY=0
 # Bump with every installer change: the first line of the TUI shows it, so a
 # stale downloaded copy is obvious at a glance.
-LARD_INSTALLER_VERSION="2026-10-29.2"
+LARD_INSTALLER_VERSION="2026-10-29.3"
 
 # ---------------------------------------------------------------------------
 # Output: a small TUI when stdout is a terminal, plain lines otherwise.
