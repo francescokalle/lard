@@ -41,7 +41,7 @@ LOG_FILE=""
 UI_TTY=0
 # Bump with every installer change: the first line of the TUI shows it, so a
 # stale downloaded copy is obvious at a glance.
-LARD_INSTALLER_VERSION="2026-10-29.4"
+LARD_INSTALLER_VERSION="2026-10-29.5"
 
 # ---------------------------------------------------------------------------
 # Output: a small TUI when stdout is a terminal, plain lines otherwise.
@@ -1299,7 +1299,7 @@ install_default_wallpaper() {
     [ -f "$src" ] || src="$SCRIPT_DIR/assets/wallpapers/lard-default.png"
     [ -f "$src" ] || return 0
     if [ "$DRY_RUN" -eq 1 ]; then
-        ui_skip "wallpaper" "[dry-run] would install the CC0 default wallpaper"
+        ui_skip "wallpaper" "[dry-run] would install the default wallpaper (water photo)"
         return 0
     fi
     local name; name="$(basename "$src")"
@@ -1317,7 +1317,7 @@ install_default_wallpaper() {
     if command -v awww >/dev/null 2>&1; then
         awww img "$dst" --transition-type fade --transition-duration 0.6 >/dev/null 2>&1 || true
     fi
-    ui_ok "wallpaper" "CC0 default wallpaper: $dst"
+    ui_ok "wallpaper" "default wallpaper: $dst"
 }
 
 # ---------------------------------------------------------------------------
