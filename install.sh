@@ -41,7 +41,7 @@ LOG_FILE=""
 UI_TTY=0
 # Bump with every installer change: the first line of the TUI shows it, so a
 # stale downloaded copy is obvious at a glance.
-LARD_INSTALLER_VERSION="2026-10-29.5"
+LARD_INSTALLER_VERSION="2026-10-29.6"
 
 # ---------------------------------------------------------------------------
 # Output: a small TUI when stdout is a terminal, plain lines otherwise.
@@ -643,21 +643,24 @@ migrate_defaults() {
         else
             cp -a "$cfg" "$cfg.bak-$(date +%Y%m%d%H%M%S)"
             sed -i 's/^effect *= *"liquid"/effect = "aurora"/; s/^random *= *true/random = false/' "$cfg"
+            # Drop the now-removed dust setting so old configs stay clean.
+            sed -i '/^dust *=/d' "$cfg"
             ui_ok "screensaver" "untouched default switched to aurora, no more metaballs"
             command -v lard >/dev/null 2>&1 && lard ipc reload >/dev/null 2>&1 || true
         fi
     fi
     local old="$DESTDIR$PREFIX/share/lard/wallpapers/lard-default.png"
-    local new="$DESTDIR$PREFIX/share/lard/wallpapers/lard-default.jpg"
+    local old_jpg="$DESTDIR$PREFIX/share/lard/wallpapers/lard-default.jpg"
+    local new="$DESTDIR$PREFIX/share/lard/wallpapers/a_close_up_of_water.jpg"
     wp="$(sed -n 's/^wallpaper *= *"\(.*\)"/\1/p' "$cfg" | head -1)"
-    if [ "$wp" = "$old" ]; then
+    if [ "$wp" = "$old" ] || [ "$wp" = "$old_jpg" ]; then
         if [ "$DRY_RUN" -eq 1 ]; then
-            ui_skip "wallpaper" "[dry-run] would switch the old default PNG to the new photo"
+            ui_skip "wallpaper" "[dry-run] would switch the old default to the water photo"
         elif [ -f "$new" ]; then
             cp -a "$cfg" "$cfg.bak-$(date +%Y%m%d%H%M%S)"
-            sed -i "s|^wallpaper *= *\"$old\"|wallpaper = \"$new\"|" "$cfg"
+            sed -i "s|^wallpaper *= *\"$wp\"|wallpaper = \"$new\"|" "$cfg"
             command -v awww >/dev/null 2>&1 && awww img "$new" --transition-type fade >/dev/null 2>&1 || true
-            ui_ok "wallpaper" "default switched to lard-default.jpg"
+            ui_ok "wallpaper" "default switched to a close up of water"
             command -v lard >/dev/null 2>&1 && lard ipc reload >/dev/null 2>&1 || true
         fi
     fi
@@ -1295,11 +1298,13 @@ install_boot() {
 install_default_wallpaper() {
     # The base wallpaper is the water photo; the procedural CC0 PNG stays as a
     # fallback for trees that predate it.
-    local src="$SCRIPT_DIR/assets/wallpapers/lard-default.jpg"
+    # "a close up of water": the photo shipped as the default wallpaper.
+    local src="$SCRIPT_DIR/assets/wallpapers/a_close_up_of_water.jpg"
+    [ -f "$src" ] || src="$SCRIPT_DIR/assets/wallpapers/lard-default.jpg"
     [ -f "$src" ] || src="$SCRIPT_DIR/assets/wallpapers/lard-default.png"
     [ -f "$src" ] || return 0
     if [ "$DRY_RUN" -eq 1 ]; then
-        ui_skip "wallpaper" "[dry-run] would install the default wallpaper (water photo)"
+        ui_skip "wallpaper" "[dry-run] would install a close up of water (default)"
         return 0
     fi
     local name; name="$(basename "$src")"
@@ -1308,13 +1313,23 @@ install_default_wallpaper() {
     [ -f "$SCRIPT_DIR/assets/wallpapers/LICENSE" ] \
         && as_root install -Dm644 "$SCRIPT_DIR/assets/wallpapers/LICENSE" "$DESTDIR$PREFIX/share/lard/wallpapers/LICENSE"
     [ -n "$DESTDIR" ] && { ui_ok "wallpaper" "$dst"; return 0; }
-    # Point the user configuration at it when no wallpaper was chosen yet.
+    # Point the user configuration at it when no wallpaper was chosen yet, and
+    # never replace a wallpaper the user picked with something else.
     local cfg; cfg="$(user_config_path)"
-    if [ -f "$cfg" ] && grep -Eq '^wallpaper *= *""' "$cfg"; then
-        sed -i "s|^wallpaper *= *\"\"|wallpaper = \"$dst\"|" "$cfg"
+    local chosen=""; local fresh=0
+    if [ -f "$cfg" ]; then
+        chosen="$(sed -n 's/^wallpaper *= *"\(.*\)"/\1/p' "$cfg" | head -1)"
+        if grep -Eq '^wallpaper *= *""' "$cfg"; then
+            sed -i "s|^wallpaper *= *\"\"|wallpaper = \"$dst\"|" "$cfg"
+            chosen="$dst"; fresh=1
+        fi
     fi
-    # Apply it now if a wallpaper daemon is already running.
-    if command -v awww >/dev/null 2>&1; then
+    # Apply it now if a wallpaper daemon is already running, but only when the
+    # chosen wallpaper is the default (fresh install or untouched default).
+    case "$chosen" in
+        "$dst" | */share/lard/wallpapers/lard-default.jpg | */share/lard/wallpapers/lard-default.png) fresh=1 ;;
+    esac
+    if [ "$fresh" -eq 1 ] && command -v awww >/dev/null 2>&1; then
         awww img "$dst" --transition-type fade --transition-duration 0.6 >/dev/null 2>&1 || true
     fi
     ui_ok "wallpaper" "default wallpaper: $dst"

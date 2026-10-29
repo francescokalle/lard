@@ -75,7 +75,6 @@ pub enum Step {
     ScreensaverIntensity,
     ScreensaverVeil,
     ScreensaverEntrance,
-    ScreensaverDust,
     LockDim,
 }
 
@@ -1949,13 +1948,6 @@ impl SettingsView {
                 Step::ScreensaverIntensity,
                 t("Intensity"),
                 format!("{}%", (saver.intensity * 100.0).round() as u32),
-                -5,
-                5,
-            ),
-            (
-                Step::ScreensaverDust,
-                t(t("Dust")),
-                format!("{}%", (saver.dust * 100.0).round() as u32),
                 -5,
                 5,
             ),

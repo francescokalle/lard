@@ -642,7 +642,7 @@ impl Default for ScreensaverConfig {
             speed: 1.0,
             intensity: 0.65,
             veil: 0.35,
-            dust: 0.35,
+            dust: 0.0,
             show_clock: true,
         }
     }

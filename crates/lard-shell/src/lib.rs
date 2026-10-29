@@ -2120,10 +2120,6 @@ impl Shell {
                 self.config.greeter.wallpaper.dim =
                     (self.config.greeter.wallpaper.dim + delta as f32 / 100.0).clamp(0.0, 0.9);
             }
-            Step::ScreensaverDust => {
-                self.config.screensaver.dust =
-                    (self.config.screensaver.dust + delta as f32 / 100.0).clamp(0.0, 1.0);
-            }
             Step::ScreensaverEntrance => {
                 let ms = self.config.screensaver.entrance_ms as i32 + delta;
                 self.config.screensaver.entrance_ms = ms.clamp(300, 2500) as u32;

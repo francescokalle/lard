@@ -160,8 +160,6 @@ speed = 1.0
 intensity = 0.65
 # How much the blurred desktop behind the shapes is darkened (0-0.95).
 veil = 0.35
-# Bright dust over every scene (0-1).
-dust = 0.35
 show_clock = true
 
 [animation]

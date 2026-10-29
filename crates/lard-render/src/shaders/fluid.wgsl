@@ -296,10 +296,6 @@ fn shot(
         let color = grid_scene(uv, t, intensity);
         return vec4<f32>(color, clamp(length(color) * 0.7, 0.0, 0.6));
     }
-    if (mode == 5u) {
-        let color = dust_scene(uv, t, intensity);
-        return vec4<f32>(color, clamp(length(color) * 0.8, 0.0, 0.65));
-    }
     if (mode == 6u) {
         return gas_layer(p, t, seed, intensity);
     }
@@ -390,9 +386,5 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let out_alpha = body_alpha + room_alpha * (1.0 - body_alpha);
     var out_rgb = body_rgb + room * room_alpha * (1.0 - body_alpha);
 
-    // Layer on top of every scene: slow bright dust. Additive, so it reads as
-    // light in the room instead of another object.
-    let dust_layer = dust(uv, t * 0.7, 11.0) * f.extra.x * 0.5;
-    out_rgb += (f.accent.rgb * 0.75 + f.light.rgb * 0.25) * dust_layer * fade;
     return vec4<f32>(max(out_rgb, vec3<f32>(0.0)) * fade, clamp(out_alpha, 0.0, 1.0) * fade);
 }
