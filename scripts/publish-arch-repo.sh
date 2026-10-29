@@ -51,7 +51,7 @@ fi
 echo "==> publish to $OUT"
 mkdir -p "$OUT"
 cp "$WORK"/lard-"$VER"-*.pkg.tar.zst "$OUT/"
-(cd "$OUT" && repo-add --remove lard.db.tar.gz lard-"$VER"-1-*.pkg.tar.zst)
+(cd "$OUT" && repo-add --remove lard.db.tar.gz lard-"$VER"-*.pkg.tar.zst)
 
 cat <<EOF
 
