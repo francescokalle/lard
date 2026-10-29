@@ -44,6 +44,8 @@ package() {
 
     install -d "$pkgdir/usr/share/lard"
     cp -a config/niri config/kitty "$pkgdir/usr/share/lard/"
+    install -d "$pkgdir/usr/share/lard/wallpapers"
+    cp -a assets/wallpapers/. "$pkgdir/usr/share/lard/wallpapers/"
     install -Dm644 docs/greeter-lard.kdl \
         "$pkgdir/usr/share/lard/greetd/greeter-lard.kdl"
 
