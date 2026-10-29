@@ -620,8 +620,27 @@ impl Shell {
     /// Apply the wallpaper chosen in the carousel again at start-up. The
     /// awww daemon may still be starting, so the wallpaper is set a few
     /// times before giving up.
-    fn restore_wallpaper(&self) {
-        let path = self.config.theme.wallpaper.clone();
+    fn restore_wallpaper(&mut self) {
+        // The wallpaper shipped with LARD is embedded so the desktop always has
+        // a sane backdrop even when the installer failed to put a file on disk
+        // (e.g. sudo expired mid-update): write it to the cache on demand.
+        const DEFAULT_BYTES: &[u8] =
+            include_bytes!("../../../assets/wallpapers/a_close_up_of_water.jpg");
+        let mut path = self.config.theme.wallpaper.clone();
+        if path.is_empty() || !std::path::Path::new(&path).exists() {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+            let cache_dir = std::path::PathBuf::from(home).join(".cache/lard");
+            let cache_path = cache_dir.join("default-wallpaper.jpg");
+            if !cache_path.exists() {
+                let _ = std::fs::create_dir_all(&cache_dir);
+                let _ = std::fs::write(&cache_path, DEFAULT_BYTES);
+            }
+            if cache_path.exists() {
+                path = cache_path.to_string_lossy().into_owned();
+                self.config.theme.wallpaper = path.clone();
+                let _ = self.config.save();
+            }
+        }
         if path.is_empty() {
             return;
         }
