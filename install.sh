@@ -38,6 +38,9 @@ REPAIR=0
 BINARY_OVERRIDE=""
 LOG_FILE=""
 UI_TTY=0
+# Bump with every installer change: the first line of the TUI shows it, so a
+# stale downloaded copy is obvious at a glance.
+LARD_INSTALLER_VERSION="2026-10-29.2"
 
 # ---------------------------------------------------------------------------
 # Output: a small TUI when stdout is a terminal, plain lines otherwise.
@@ -53,7 +56,7 @@ ui_header() {
     printf '%s\n' "  │  LARD — light as rust dust                   │"
     printf '%s\n' "  │  native Wayland shell for niri               │"
     printf '%s\n' "  ╰──────────────────────────────────────────────╯"
-    printf '%s\n\n' "$C_RESET"
+    printf '  %sinstaller %s%s\n\n' "$C_GREY" "$LARD_INSTALLER_VERSION" "$C_RESET"
 }
 
 ui_step() { printf '  %s◐%s %s%-12s%s %s%s%s\n' "$C_BLUE" "$C_RESET" "$C_BOLD" "$1" "$C_RESET" "$C_GREY" "${2:-}" "$C_RESET"; }
@@ -1139,6 +1142,7 @@ install_boot() {
         done
         if [ "$ok" -eq 1 ] && as_root systemctl is-active --quiet greetd.service; then
             ui_ok "boot" "greetd running: LARD greeter on VT1 (niri host)"
+        ui_ok "boot" "default target $(systemctl get-default 2>/dev/null), greetd $(systemctl is-enabled greetd.service 2>/dev/null || echo '?')"
             return 0
         fi
         ui_warn "the greeter did not stay up: here is why"
