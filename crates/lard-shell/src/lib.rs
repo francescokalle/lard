@@ -629,7 +629,7 @@ impl Shell {
         let mut path = self.config.theme.wallpaper.clone();
         if path.is_empty() || !std::path::Path::new(&path).exists() {
             let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-            let cache_dir = std::path::PathBuf::from(home).join(".cache/lard");
+            let cache_dir = std::path::PathBuf::from(home.clone()).join(".cache/lard");
             let cache_path = cache_dir.join("default-wallpaper.jpg");
             if !cache_path.exists() {
                 let _ = std::fs::create_dir_all(&cache_dir);
@@ -639,6 +639,16 @@ impl Shell {
                 path = cache_path.to_string_lossy().into_owned();
                 self.config.theme.wallpaper = path.clone();
                 let _ = self.config.save();
+            }
+            // Seed the wallpaper picker's folder too, so the photo is visible
+            // and selectable even on installs where the installer put nothing
+            // on disk.
+            let picker_dir = std::path::PathBuf::from(&home)
+                .join(".config/niri/lard-themes/wallpapers");
+            let picker_path = picker_dir.join("a_close_up_of_water.jpg");
+            if !picker_path.exists() {
+                let _ = std::fs::create_dir_all(&picker_dir);
+                let _ = std::fs::write(&picker_path, DEFAULT_BYTES);
             }
         }
         if path.is_empty() {
