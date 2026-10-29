@@ -585,6 +585,30 @@ install_wallpaper_daemon() {
 
 # The shortcuts used on the development machine, shipped with the sources and
 # installed on every target (with a backup and without duplicating the include).
+install_terminal_config() {
+    local term
+    term="$(basename "${TERMINAL:-kitty}")"
+    if [ "$term" != "kitty" ]; then
+        ui_skip "terminal" "$term has no managed config"
+        return 0
+    fi
+    [ -n "$DESTDIR" ] && return 0
+    local dir="${XDG_CONFIG_HOME:-$HOME/.config}/kitty"
+    if [ "$DRY_RUN" -eq 1 ]; then
+        ui_skip "terminal" "[dry-run] would install kitty.conf (opacity 0.5, blur) + tabs/theme"
+        return 0
+    fi
+    mkdir -p "$dir"
+    local f name
+    for f in "$SCRIPT_DIR"/config/kitty/*.conf; do
+        [ -f "$f" ] || continue
+        name="$(basename "$f")"
+        [ -f "$dir/$name" ] && cp -a "$dir/$name" "$dir/$name.bak-$(date +%Y%m%d%H%M%S)"
+        install -Dm644 "$f" "$dir/$name"
+    done
+    ui_ok "terminal" "kitty.conf installed (semi-transparent, blur, tabs)"
+}
+
 install_niri_config() {
     [ -n "$DESTDIR" ] && { ui_skip "niri" "skipped in staging"; return 0; }
     [ "$EUID" -eq 0 ] && { ui_skip "niri" "run as your user"; return 0; }
@@ -959,8 +983,15 @@ EOP
     [ "$(id -u)" -eq 0 ] && as_root chown "$user" "$profile"
     ui_ok "boot" "niri-session on tty1 login ($profile)"
     # 2) tty1 logs the user in automatically: no login screen to configure
-    local agetty
-    agetty="$(command -v agetty 2>/dev/null || echo /sbin/agetty)"
+    local agetty=""
+    local candidate
+    for candidate in /usr/bin/agetty /sbin/agetty /bin/agetty; do
+        [ -x "$candidate" ] && { agetty="$candidate"; break; }
+    done
+    if [ -z "$agetty" ]; then
+        ui_warn "agetty not found: tty1 cannot be configured for autologin"
+        return 0
+    fi
     local drop=/etc/systemd/system/getty@tty1.service.d/autologin.conf
     if command -v systemctl >/dev/null 2>&1; then
         as_root mkdir -p /etc/systemd/system/getty@tty1.service.d
@@ -972,7 +1003,11 @@ EOP
         if systemctl list-unit-files greetd.service >/dev/null 2>&1; then
             as_root systemctl disable greetd.service >/dev/null 2>&1 || true
         fi
-        ui_ok "boot" "autologin on tty1 for $user (no login screen needed)"
+        if as_root systemctl cat getty@tty1.service 2>/dev/null | grep -q -- "--autologin $user"; then
+            ui_ok "boot" "autologin on tty1 for $user (no login screen needed)"
+        else
+            ui_warn "could not verify the tty1 autologin override: check $drop"
+        fi
     fi
     return 0
 }
@@ -1083,14 +1118,21 @@ install_boot() {
     if command -v systemctl >/dev/null 2>&1; then
         as_root systemctl daemon-reload >/dev/null 2>&1 || true
         as_root systemctl enable greetd.service >>"$LOG_FILE" 2>&1 || true
+        # A machine whose default target is multi-user.target never starts the
+        # display manager: it boots to a text login even with greetd enabled.
+        as_root systemctl set-default graphical.target >>"$LOG_FILE" 2>&1 || true
         as_root systemctl restart greetd.service >>"$LOG_FILE" 2>&1 || true
         # "is-active" is not enough: greetd stays active while the greeter
         # session crash-loops. Success means a greeter process that lives for a
         # few seconds.
         local ok=0 i pid et
-        for i in $(seq 1 12); do
+        for i in $(seq 1 20); do
             sleep 1
-            pid="$(pgrep -u greeter -f 'lard greeter' 2>/dev/null | head -n1)"
+            if command -v pgrep >/dev/null 2>&1; then
+                pid="$(pgrep -u greeter -f 'lard greeter' 2>/dev/null | head -n1)"
+            else
+                pid="$(ps -u greeter -o pid=,args= 2>/dev/null | awk '/lard greeter/ {print $1; exit}')"
+            fi
             [ -n "$pid" ] || continue
             et="$(ps -o etimes= -p "$pid" 2>/dev/null | tr -d ' ')"
             if [ -n "$et" ] && [ "$et" -ge 3 ] 2>/dev/null; then ok=1; break; fi
@@ -1326,6 +1368,7 @@ EOF
 
     install_default_wallpaper
     install_niri_config
+    install_terminal_config
     enable_autostart
     install_boot
     setup_system
