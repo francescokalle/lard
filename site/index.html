@@ -80,6 +80,21 @@
     <p class="note">Builds in release and asks for <code>sudo</code> only for system files. No QML, GTK, Qt, Node or Electron: only Rust.</p>
   </div>
 
+  <div class="card">
+    <h2>Update</h2>
+    <div class="cmd">
+      <code id="cmd-update"><span class="dollar">$ </span>lard update</code>
+      <button class="copy" data-copy="lard update">copy</button>
+    </div>
+    <p class="alt">Fetches the latest version, keeps <code>/etc/lard/config.toml</code>, the PAM service and the
+      boot setup, replaces the managed niri/kitty files and restarts the bar. <code>--dry-run</code> shows the plan,
+      <code>--source</code> forces a rebuild.</p>
+    <p class="note">Or update it with the system package manager: add
+      <code>Server = https://lard.francescocallegaro.com/repo/arch/$arch</code>
+      (with <code>SigLevel = Optional TrustAll</code>) as the <code>[lard]</code> repository in
+      <code>/etc/pacman.conf</code>, then <code>sudo pacman -Syu</code>.</p>
+  </div>
+
   <div class="grid">
     <div class="item"><b>/usr/local/bin/lard</b><span>the binary, built on the spot</span></div>
     <div class="item"><b>/etc/lard/config.toml</b><span>system config + user copy when missing</span></div>

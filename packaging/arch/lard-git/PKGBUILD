@@ -25,7 +25,11 @@ pkgver() {
 
 build() {
     cd lard
-    cargo build --release --locked
+    if [ -n "${LARD_BINARY:-}" ] && [ -x "$LARD_BINARY" ]; then
+        install -Dm755 "$LARD_BINARY" target/release/lard
+    else
+        cargo build --release --locked
+    fi
 }
 
 package() {

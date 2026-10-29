@@ -39,7 +39,14 @@ fi
 echo "==> build lard-$VER"
 cp "$ROOT/packaging/arch/PKGBUILD" "$WORK/PKGBUILD"
 sed -i "s/^pkgver=.*/pkgver=$VER/" "$WORK/PKGBUILD"
-(cd "$WORK" && makepkg --force --nodeps --noconfirm)
+# Reuse the release binary already built in the tree (same source) instead of
+# compiling a second time inside makepkg. That binary is what the running shell
+# uses, so the package and the script install stay identical.
+if [ -x "$ROOT/target/release/lard" ]; then
+    (cd "$WORK" && LARD_BINARY="$ROOT/target/release/lard" makepkg --force --nodeps --noconfirm)
+else
+    (cd "$WORK" && makepkg --force --nodeps --noconfirm)
+fi
 
 echo "==> publish to $OUT"
 mkdir -p "$OUT"
